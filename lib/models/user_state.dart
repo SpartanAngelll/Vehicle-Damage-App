@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
-import '../services/storage_service.dart';
+import '../services/local_storage_service.dart';
+import '../services/services.dart';
 import 'damage_report.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum UserRole {
   owner,
@@ -20,6 +22,9 @@ class UserState extends ChangeNotifier {
   
   // For repair professionals: track submitted estimates
   final List<Estimate> _submittedEstimates = [];
+  
+  // For vehicle owners: track received estimates
+  final List<Estimate> _receivedEstimates = [];
 
   // Getters
   bool get isAuthenticated => _isAuthenticated;
@@ -43,41 +48,63 @@ class UserState extends ChangeNotifier {
   int get totalPendingEstimates => pendingEstimates.length;
   int get totalAcceptedEstimates => acceptedEstimates.length;
   int get totalDeclinedEstimates => declinedEstimates.length;
+  
+  // Estimate tracking getters for vehicle owners
+  List<Estimate> get receivedEstimates => List.unmodifiable(_receivedEstimates);
+  List<Estimate> get pendingReceivedEstimates => _receivedEstimates.where((e) => e.status == EstimateStatus.pending).toList();
+  List<Estimate> get acceptedReceivedEstimates => _receivedEstimates.where((e) => e.status == EstimateStatus.accepted).toList();
+  List<Estimate> get declinedReceivedEstimates => _receivedEstimates.where((e) => e.status == EstimateStatus.declined).toList();
+  int get totalReceivedEstimates => _receivedEstimates.length;
+  int get totalPendingReceivedEstimates => pendingReceivedEstimates.length;
+  int get totalAcceptedReceivedEstimates => acceptedReceivedEstimates.length;
+  int get totalDeclinedReceivedEstimates => declinedReceivedEstimates.length;
 
   UserState() {
     _loadUserData();
   }
 
-  Future<void> signIn({
+  // Initialize user state from Firebase Auth
+  void initializeFromFirebase({
+    required String userId,
     required String email,
-    required String phoneNumber,
-    required UserRole role,
+    required String userType,
+    String? phoneNumber,
     String? bio,
-  }) async {
-    try {
-      _setLoading(true);
-      _clearError();
-
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      _userId = DateTime.now().millisecondsSinceEpoch.toString();
-      _email = email;
-      _phoneNumber = phoneNumber;
-      _role = role;
-      _bio = bio;
-      _isAuthenticated = true;
-      _lastLoginTime = DateTime.now();
-
-      await _saveUserData();
-
-      _notifyListeners();
-    } catch (e) {
-      _setError('Sign in failed: ${e.toString()}');
-    } finally {
-      _setLoading(false);
-    }
+  }) {
+    debugPrint('UserState: Initializing from Firebase - userId: $userId, email: $email, userType: $userType');
+    
+    _userId = userId;
+    _email = email;
+    _phoneNumber = phoneNumber;
+    _role = userType == 'owner' ? UserRole.owner : UserRole.repairman;
+    _bio = bio;
+    _isAuthenticated = true;
+    _lastLoginTime = DateTime.now();
+    
+    debugPrint('UserState: Role set to ${_role.toString()}, isRepairman: ${_role == UserRole.repairman}');
+    debugPrint('UserState: isOwner: ${_role == UserRole.owner}, isRepairman: ${_role == UserRole.repairman}');
+    
+    _saveUserData();
+    notifyListeners();
   }
 
+  // Clear user state on sign out
+  void clearUserState() {
+    _isAuthenticated = false;
+    _email = null;
+    _phoneNumber = null;
+    _role = null;
+    _userId = null;
+    _lastLoginTime = null;
+    _bio = null;
+    _submittedEstimates.clear();
+    _receivedEstimates.clear();
+    
+    LocalStorageService.clearUserData();
+    notifyListeners();
+  }
+
+  // Sign out method for compatibility with existing code
   Future<void> signOut() async {
     try {
       _setLoading(true);
@@ -85,18 +112,7 @@ class UserState extends ChangeNotifier {
 
       await Future.delayed(const Duration(milliseconds: 300));
 
-      _isAuthenticated = false;
-      _email = null;
-      _phoneNumber = null;
-      _role = null;
-      _userId = null;
-      _lastLoginTime = null;
-      _bio = null;
-      _submittedEstimates.clear();
-
-      await StorageService.clearUserData();
-
-      _notifyListeners();
+      clearUserState();
     } catch (e) {
       _setError('Sign out failed: ${e.toString()}');
     } finally {
@@ -119,7 +135,7 @@ class UserState extends ChangeNotifier {
 
       await _saveUserData();
 
-      _notifyListeners();
+      notifyListeners();
     } catch (e) {
       _setError('Profile update failed: ${e.toString()}');
     } finally {
@@ -135,7 +151,7 @@ class UserState extends ChangeNotifier {
       _role = newRole;
       await _saveUserData();
 
-      _notifyListeners();
+      notifyListeners();
     } catch (e) {
       _setError('Role change failed: ${e.toString()}');
     } finally {
@@ -155,11 +171,9 @@ class UserState extends ChangeNotifier {
         throw Exception('Bio must be 500 characters or less');
       }
 
-      await Future.delayed(const Duration(milliseconds: 400));
-
       _bio = newBio.trim();
       await _saveUserData();
-      _notifyListeners();
+      notifyListeners();
     } catch (e) {
       _setError('Bio update failed: ${e.toString()}');
     } finally {
@@ -172,7 +186,7 @@ class UserState extends ChangeNotifier {
     if (_role == UserRole.repairman) {
       _submittedEstimates.add(estimate);
       _saveUserData();
-      _notifyListeners();
+      notifyListeners();
     }
   }
 
@@ -183,7 +197,7 @@ class UserState extends ChangeNotifier {
         final updatedEstimate = _submittedEstimates[index].copyWith(status: newStatus);
         _submittedEstimates[index] = updatedEstimate;
         _saveUserData();
-        _notifyListeners();
+        notifyListeners();
       }
     }
   }
@@ -192,107 +206,218 @@ class UserState extends ChangeNotifier {
     if (_role == UserRole.repairman) {
       _submittedEstimates.removeWhere((e) => e.id == estimateId);
       _saveUserData();
-      _notifyListeners();
+      notifyListeners();
     }
   }
 
   // Get available jobs (damage reports without estimates from this professional)
   List<DamageReport> getAvailableJobs(List<DamageReport> allReports) {
-    if (_role != UserRole.repairman || _userId == null) return [];
-    
+    if (_role != UserRole.repairman || _userId == null) {
+      return [];
+    }
+
     return allReports.where((report) {
-      // Check if this professional has already submitted an estimate for this report
-      final hasSubmitted = _submittedEstimates.any((estimate) => 
-        estimate.repairProfessionalId == _userId && 
-        report.id == estimate.id // This would need to be adjusted based on your data structure
-      );
-      
-      return !hasSubmitted;
+      // Only show reports that don't have estimates from this professional
+      return !report.estimates.any((estimate) => estimate.repairProfessionalId == _userId);
     }).toList();
   }
 
-  Future<void> signInWithGoogle() async {
+  // Load estimates for repair professional
+  Future<void> loadEstimatesForProfessional() async {
+    if (_userId == null || !_isAuthenticated || !isRepairman) return;
+    
     try {
       _setLoading(true);
       _clearError();
-
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      _userId = DateTime.now().millisecondsSinceEpoch.toString();
-      _email = 'user@gmail.com';
-      _phoneNumber = '+1234567890';
-      _role = UserRole.owner;
-      _isAuthenticated = true;
-      _lastLoginTime = DateTime.now();
-
-      await _saveUserData();
-
-      _notifyListeners();
+      
+      final firestoreService = FirebaseFirestoreService();
+      final estimatesData = await firestoreService.getAllEstimatesForProfessional(_userId!);
+      
+      final estimates = <Estimate>[];
+      for (final estimateData in estimatesData) {
+        final estimate = Estimate(
+          id: estimateData['id'] as String,
+          reportId: estimateData['reportId'] as String,
+          ownerId: estimateData['ownerId'] as String,
+          repairProfessionalId: estimateData['professionalId'] as String,
+          repairProfessionalEmail: estimateData['professionalEmail'] as String,
+          repairProfessionalBio: estimateData['professionalBio'] as String?,
+          cost: (estimateData['cost'] as num).toDouble(),
+          leadTimeDays: estimateData['leadTimeDays'] as int,
+          description: estimateData['description'] as String,
+          imageUrls: List<String>.from(estimateData['imageUrls'] ?? []),
+          status: _parseEstimateStatus(estimateData['status'] as String),
+          submittedAt: (estimateData['submittedAt'] as Timestamp).toDate(),
+          updatedAt: estimateData['updatedAt'] != null 
+              ? (estimateData['updatedAt'] as Timestamp).toDate() 
+              : null,
+          acceptedAt: estimateData['acceptedAt'] != null 
+              ? (estimateData['acceptedAt'] as Timestamp).toDate() 
+              : null,
+          declinedAt: estimateData['declinedAt'] != null 
+              ? (estimateData['declinedAt'] as Timestamp).toDate() 
+              : null,
+        );
+        estimates.add(estimate);
+      }
+      
+      _submittedEstimates.clear();
+      _submittedEstimates.addAll(estimates);
+      
+      notifyListeners();
     } catch (e) {
-      _setError('Google sign in failed: ${e.toString()}');
+      _setError('Failed to load estimates: ${e.toString()}');
     } finally {
       _setLoading(false);
     }
   }
 
-  Future<void> signInWithApple() async {
+  // Load estimates for vehicle owner
+  Future<void> loadEstimatesForOwner() async {
+    if (_userId == null || !_isAuthenticated || !isOwner) return;
+    
     try {
       _setLoading(true);
       _clearError();
-
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      _userId = DateTime.now().millisecondsSinceEpoch.toString();
-      _email = 'user@icloud.com';
-      _phoneNumber = '+1234567890';
-      _role = UserRole.owner;
-      _isAuthenticated = true;
-      _lastLoginTime = DateTime.now();
-
-      await _saveUserData();
-
-      _notifyListeners();
+      
+      // Use a more efficient approach - don't create new AppState instance
+      final firestoreService = FirebaseFirestoreService();
+      final estimatesData = await firestoreService.getAllEstimatesForOwner(_userId!);
+      
+      final estimates = <Estimate>[];
+      for (final estimateData in estimatesData) {
+        final estimate = Estimate(
+          id: estimateData['id'] as String,
+          reportId: estimateData['reportId'] as String,
+          ownerId: estimateData['ownerId'] as String,
+          repairProfessionalId: estimateData['professionalId'] as String,
+          repairProfessionalEmail: estimateData['professionalEmail'] as String,
+          repairProfessionalBio: estimateData['professionalBio'] as String?,
+          cost: (estimateData['cost'] as num).toDouble(),
+          leadTimeDays: estimateData['leadTimeDays'] as int,
+          description: estimateData['description'] as String,
+          imageUrls: List<String>.from(estimateData['imageUrls'] ?? []),
+          status: _parseEstimateStatus(estimateData['status'] as String),
+          submittedAt: (estimateData['submittedAt'] as Timestamp).toDate(),
+          updatedAt: estimateData['updatedAt'] != null 
+              ? (estimateData['updatedAt'] as Timestamp).toDate() 
+              : null,
+          acceptedAt: estimateData['acceptedAt'] != null 
+              ? (estimateData['acceptedAt'] as Timestamp).toDate() 
+              : null,
+          declinedAt: estimateData['declinedAt'] != null 
+              ? (estimateData['declinedAt'] as Timestamp).toDate() 
+              : null,
+        );
+        estimates.add(estimate);
+      }
+      
+      _receivedEstimates.clear();
+      _receivedEstimates.addAll(estimates);
+      
+      notifyListeners();
     } catch (e) {
-      _setError('Apple sign in failed: ${e.toString()}');
+      _setError('Failed to load estimates: ${e.toString()}');
     } finally {
       _setLoading(false);
     }
   }
 
+  // Update received estimate status for owners
+  Future<void> updateReceivedEstimateStatus({
+    required String estimateId,
+    required EstimateStatus status,
+    DateTime? acceptedAt,
+    double? acceptedCost,
+    DateTime? declinedAt,
+    double? declinedCost,
+  }) async {
+    if (_userId == null || !_isAuthenticated || !isOwner) return;
+    
+    try {
+      _setLoading(true);
+      _clearError();
+      
+      final firestoreService = FirebaseFirestoreService();
+      await firestoreService.updateEstimateStatus(
+        estimateId: estimateId,
+        status: status.name,
+        acceptedAt: acceptedAt,
+        declinedAt: declinedAt,
+        cost: acceptedCost ?? declinedCost,
+      );
+      
+      // Update local state
+      final index = _receivedEstimates.indexWhere((e) => e.id == estimateId);
+      if (index != -1) {
+        final updatedEstimate = _receivedEstimates[index].copyWith(
+          status: status,
+          acceptedAt: acceptedAt,
+          declinedAt: declinedAt,
+        );
+        _receivedEstimates[index] = updatedEstimate;
+        notifyListeners();
+      }
+    } catch (e) {
+      _setError('Failed to update estimate status: ${e.toString()}');
+      rethrow;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Private methods
+  EstimateStatus _parseEstimateStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'accepted':
+        return EstimateStatus.accepted;
+      case 'declined':
+        return EstimateStatus.declined;
+      case 'pending':
+      default:
+        return EstimateStatus.pending;
+    }
+  }
+  
   void _setLoading(bool loading) {
     _isLoading = loading;
-    _notifyListeners();
+    notifyListeners();
   }
 
   void _setError(String error) {
     _errorMessage = error;
-    _notifyListeners();
+    notifyListeners();
   }
 
   void _clearError() {
     _errorMessage = null;
+    notifyListeners();
   }
 
-  void clearError() {
-    _clearError();
-    _notifyListeners();
-  }
-
-  void _notifyListeners() {
-    if (!_isLoading) {
-      notifyListeners();
+  Future<void> _saveUserData() async {
+    try {
+      // Save individual user data fields
+      if (_userId != null) await LocalStorageService.saveUserId(_userId!);
+      if (_email != null) await LocalStorageService.saveUserEmail(_email!);
+      if (_phoneNumber != null) await LocalStorageService.saveUserPhone(_phoneNumber!);
+      if (_role != null) await LocalStorageService.saveUserRole(_role.toString().split('.').last);
+      if (_bio != null) await LocalStorageService.saveUserBio(_bio!);
+      await LocalStorageService.saveIsAuthenticated(_isAuthenticated);
+      if (_lastLoginTime != null) await LocalStorageService.saveLastLoginTime(_lastLoginTime!);
+    } catch (e) {
+      debugPrint('Failed to save user data: $e');
     }
   }
 
   Future<void> _loadUserData() async {
     try {
-      final userId = await StorageService.getUserId();
-      final email = await StorageService.getUserEmail();
-      final phone = await StorageService.getUserPhone();
-      final roleString = await StorageService.getUserRole();
-      final bio = await StorageService.getUserBio();
-      final isAuthenticated = await StorageService.getIsAuthenticated();
-      final lastLoginTime = await StorageService.getLastLoginTime();
+      final userId = await LocalStorageService.getUserId();
+      final email = await LocalStorageService.getUserEmail();
+      final phone = await LocalStorageService.getUserPhone();
+      final roleString = await LocalStorageService.getUserRole();
+      final bio = await LocalStorageService.getUserBio();
+      final isAuthenticated = await LocalStorageService.getIsAuthenticated();
+      final lastLoginTime = await LocalStorageService.getLastLoginTime();
 
       if (userId != null && email != null && phone != null && roleString != null) {
         _userId = userId;
@@ -305,38 +430,11 @@ class UserState extends ChangeNotifier {
         _bio = bio;
         _isAuthenticated = isAuthenticated ?? false;
         _lastLoginTime = lastLoginTime;
-        _notifyListeners();
+        notifyListeners();
       }
     } catch (e) {
-      _setError('Failed to load user data: ${e.toString()}');
+      debugPrint('Failed to load user data: $e');
     }
   }
-
-  Future<void> _saveUserData() async {
-    try {
-      if (_userId != null) {
-        await StorageService.saveUserId(_userId!);
-      }
-      if (_email != null) {
-        await StorageService.saveUserEmail(_email!);
-      }
-      if (_phoneNumber != null) {
-        await StorageService.saveUserPhone(_phoneNumber!);
-      }
-      if (_role != null) {
-        await StorageService.saveUserRole(_role.toString().split('.').last);
-      }
-      if (_bio != null) {
-        await StorageService.saveUserBio(_bio!);
-      }
-      await StorageService.saveIsAuthenticated(_isAuthenticated);
-      if (_lastLoginTime != null) {
-        await StorageService.saveLastLoginTime(_lastLoginTime!);
-      }
-    } catch (e) {
-      _setError('Failed to save user data: ${e.toString()}');
-    }
-  }
-
-  // No cleanup needed for this class
 }
+

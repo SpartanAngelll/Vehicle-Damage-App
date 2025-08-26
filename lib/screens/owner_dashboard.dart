@@ -6,6 +6,9 @@ import '../models/models.dart';
 import '../services/image_service.dart';
 import '../widgets/widgets.dart';
 import '../utils/responsive_utils.dart';
+import '../services/services.dart';
+import '../widgets/responsive_layout.dart';
+import '../widgets/damage_report_card.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({super.key});
@@ -16,7 +19,52 @@ class OwnerDashboard extends StatefulWidget {
 
 class _OwnerDashboardState extends State<OwnerDashboard> {
   final TextEditingController descController = TextEditingController();
+  final TextEditingController makeController = TextEditingController();
+  final TextEditingController modelController = TextEditingController();
+  final TextEditingController yearController = TextEditingController();
   bool _isUploading = false;
+  bool _isLoadingEstimates = false;
+  bool _hasLoadedEstimates = false;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Don't auto-load estimates to prevent UI blocking
+  }
+  
+  Future<void> _loadEstimatesAsync() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoadingEstimates = true;
+    });
+    
+    try {
+      final userState = Provider.of<UserState>(context, listen: false);
+      await userState.loadEstimatesForOwner();
+      if (mounted) {
+        setState(() {
+          _hasLoadedEstimates = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load estimates: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingEstimates = false;
+        });
+      }
+    }
+  }
   
   @override
   Widget build(BuildContext context) {
@@ -79,19 +127,25 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   }
 
   Widget _buildMobileLayout(BuildContext context) {
-    final appState = Provider.of<AppState>(context);
-    
-    return Padding(
-      padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 10, tablet: 15, desktop: 20)),
-          _buildUploadSection(context, appState),
-          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 30, tablet: 40, desktop: 50)),
-          _buildRequestsSection(context, appState),
-        ],
-      ),
+    return Consumer<AppState>(
+      builder: (context, appState, child) {
+        return SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 10, tablet: 15, desktop: 20)),
+                _buildUploadSection(context, appState),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 30, tablet: 40, desktop: 50)),
+                _buildRequestsSection(context, appState),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 30, tablet: 40, desktop: 50)),
+                _buildEstimatesSection(context),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -245,76 +299,434 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   }
 
   Widget _buildRequestsSection(BuildContext context, AppState appState) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            label: 'My Requests section heading',
-            header: true,
-            child: Text(
-              "My Requests", 
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 20, tablet: 24, desktop: 28), 
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onSurface,
-              )
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          label: 'My Requests section heading',
+          header: true,
+          child: Text(
+            "My Requests", 
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 20, tablet: 24, desktop: 28), 
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.onSurface,
+            )
           ),
-          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 10, tablet: 15, desktop: 20)),
-          Expanded(
-            child: appState.reports.isEmpty
-                ? Center(
-                    child: Semantics(
-                      label: 'No damage requests submitted yet',
-                      child: Text(
-                        "No requests yet.",
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 16, tablet: 18, desktop: 20),
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+        ),
+        SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 10, tablet: 15, desktop: 20)),
+        appState.reports.isEmpty
+            ? Center(
+                child: Semantics(
+                  label: 'No damage requests submitted yet',
+                  child: Text(
+                    "No requests yet.",
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 16, tablet: 18, desktop: 20),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
-                  )
-                : _buildResponsiveGrid(context, appState),
-          ),
-        ],
-      ),
+                  ),
+                ),
+              )
+            : _buildResponsiveGrid(context, appState),
+      ],
     );
   }
 
   Widget _buildResponsiveGrid(BuildContext context, AppState appState) {
-    if (ResponsiveUtils.isMobile(context)) {
-      return ListView.builder(
-        itemCount: appState.reports.length,
-        itemBuilder: (context, i) {
-          final report = appState.reports[i];
-          return DamageReportCard(
-            report: report,
-            index: i,
-            showEstimateInput: false, // Vehicle owners don't submit estimates
-          );
-        },
-      );
-    } else {
-      // Tablet and desktop use grid layout
-      return GridView.builder(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: ResponsiveUtils.isTablet(context) ? 2 : 3,
-          childAspectRatio: ResponsiveUtils.isTablet(context) ? 1.2 : 1.0,
-          crossAxisSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
-          mainAxisSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
+    if (appState.reports.isEmpty) {
+      return SizedBox.shrink();
+    }
+    
+    // Use simple Column for all screen sizes to avoid performance issues
+    return Column(
+      children: appState.reports.asMap().entries.map((entry) {
+        final index = entry.key;
+        final report = entry.value;
+        return DamageReportCard(
+          report: report,
+          index: index,
+          showEstimateInput: false, // Vehicle owners don't submit estimates
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildEstimatesSection(BuildContext context) {
+    return Consumer<UserState>(
+      builder: (context, userState, child) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Semantics(
+                    label: 'My Estimates section heading',
+                    header: true,
+                    child: Text(
+                      "My Estimates", 
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 20, tablet: 24, desktop: 28), 
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _loadEstimatesAsync,
+                  icon: Icon(Icons.refresh),
+                  tooltip: 'Refresh estimates',
+                ),
+              ],
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 10, tablet: 15, desktop: 20)),
+            if (_isLoadingEstimates)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 30, desktop: 40)),
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+                      Text(
+                        'Loading estimates...',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (!_hasLoadedEstimates)
+              Center(
+                child: Padding(
+                  padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 30, desktop: 40)),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.refresh,
+                        size: ResponsiveUtils.getResponsiveIconSize(context, mobile: 48, tablet: 56, desktop: 64),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+                      Text(
+                        'Tap refresh to load estimates',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (userState.receivedEstimates.isEmpty)
+              Semantics(
+                label: 'No estimates received yet',
+                child: Text(
+                  "No estimates received yet.",
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 16, tablet: 18, desktop: 20),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Summary cards
+                  Wrap(
+                    spacing: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16),
+                    runSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16),
+                    children: [
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width * 0.28,
+                        child: _buildEstimateSummaryCard(
+                          context,
+                          'Pending',
+                          userState.pendingEstimates.length.toString(),
+                          Icons.schedule,
+                          Colors.orange,
+                        ),
+                      ),
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width * 0.28,
+                        child: _buildEstimateSummaryCard(
+                          context,
+                          'Accepted',
+                          userState.acceptedEstimates.length.toString(),
+                          Icons.check_circle,
+                          Colors.green,
+                        ),
+                      ),
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width * 0.28,
+                        child: _buildEstimateSummaryCard(
+                          context,
+                          'Declined',
+                          userState.declinedEstimates.length.toString(),
+                          Icons.cancel,
+                          Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+                  // Estimates list
+                  Column(
+                    children: userState.receivedEstimates.map((estimate) {
+                      return _buildEstimateCard(context, estimate);
+                    }).toList(),
+                  ),
+                ],
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEstimateSummaryCard(BuildContext context, String title, String value, IconData icon, Color color) {
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: ResponsiveUtils.getResponsiveIconSize(context, mobile: 24, tablet: 28, desktop: 32),
+              color: color,
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 10, desktop: 12)),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 18, tablet: 22, desktop: 26),
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 12, tablet: 14, desktop: 16),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
-        itemCount: appState.reports.length,
-        itemBuilder: (context, i) {
-          final report = appState.reports[i];
-          return DamageReportCard(
-            report: report,
-            index: i,
-            showEstimateInput: false, // Vehicle owners don't submit estimates
-          );
-        },
+      ),
+    );
+  }
+
+  Widget _buildEstimateCard(BuildContext context, Estimate estimate) {
+    return Card(
+      margin: EdgeInsets.only(bottom: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+      child: Padding(
+        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with status
+            Row(
+              children: [
+                Icon(
+                  estimate.status == EstimateStatus.pending ? Icons.schedule 
+                    : estimate.status == EstimateStatus.accepted ? Icons.check_circle 
+                    : Icons.cancel,
+                  color: estimate.status == EstimateStatus.pending ? Colors.orange 
+                    : estimate.status == EstimateStatus.accepted ? Colors.green 
+                    : Colors.red,
+                ),
+                SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                Expanded(
+                  child: Text(
+                    'Estimate from ${estimate.repairProfessionalEmail}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 16, tablet: 18, desktop: 20),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16),
+                    vertical: ResponsiveUtils.getResponsivePadding(context, mobile: 4, tablet: 6, desktop: 8),
+                  ),
+                  decoration: BoxDecoration(
+                    color: estimate.status == EstimateStatus.pending ? Colors.orange.withOpacity(0.1)
+                      : estimate.status == EstimateStatus.accepted ? Colors.green.withOpacity(0.1)
+                      : Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: estimate.status == EstimateStatus.pending ? Colors.orange
+                        : estimate.status == EstimateStatus.accepted ? Colors.green
+                        : Colors.red,
+                    ),
+                  ),
+                  child: Text(
+                    estimate.status.name.toUpperCase(),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 10, tablet: 12, desktop: 14),
+                      fontWeight: FontWeight.bold,
+                      color: estimate.status == EstimateStatus.pending ? Colors.orange
+                        : estimate.status == EstimateStatus.accepted ? Colors.green
+                        : Colors.red,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+            // Estimate details
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Cost: \$${estimate.cost.toStringAsFixed(2)}',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 16, tablet: 18, desktop: 20),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 4, tablet: 6, desktop: 8)),
+                      Text(
+                        'Lead Time: ${estimate.leadTimeDays} days',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (estimate.status == EstimateStatus.pending)
+                  Column(
+                    children: [
+                      ElevatedButton(
+                        onPressed: () => _acceptEstimate(context, estimate),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Text('Accept'),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 10, desktop: 12)),
+                      ElevatedButton(
+                        onPressed: () => _declineEstimate(context, estimate),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Text('Decline'),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            if (estimate.description.isNotEmpty) ...[
+              SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+              Text(
+                'Description:',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 4, tablet: 6, desktop: 8)),
+              Text(
+                estimate.description,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 10, desktop: 12)),
+            Text(
+              'Submitted: ${estimate.submittedAt.toString().split('.')[0]}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 12, tablet: 14, desktop: 16),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _acceptEstimate(BuildContext context, Estimate estimate) async {
+    try {
+      final userState = Provider.of<UserState>(context, listen: false);
+      await userState.updateReceivedEstimateStatus(
+        estimateId: estimate.id,
+        status: EstimateStatus.accepted,
+        acceptedAt: DateTime.now(),
+        acceptedCost: estimate.cost,
       );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Estimate accepted successfully!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to accept estimate: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _declineEstimate(BuildContext context, Estimate estimate) async {
+    try {
+      final userState = Provider.of<UserState>(context, listen: false);
+      await userState.updateReceivedEstimateStatus(
+        estimateId: estimate.id,
+        status: EstimateStatus.declined,
+        declinedAt: DateTime.now(),
+        declinedCost: estimate.cost,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Estimate declined successfully!'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to decline estimate: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -332,8 +744,12 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           ElevatedButton(
             onPressed: () async {
               try {
+                final authService = context.read<FirebaseAuthService>();
                 final userState = context.read<UserState>();
-                await userState.signOut();
+                
+                await authService.signOut();
+                userState.clearUserState();
+                
                 Navigator.pop(context); // Close dialog first
                 if (mounted) {
                   Navigator.pushReplacementNamed(context, '/login');
@@ -527,12 +943,83 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     ) ?? false;
   }
 
+  Future<bool?> _showVehicleInfoDialog(BuildContext context) async {
+    // Pre-fill with current year if empty
+    if (yearController.text.isEmpty) {
+      yearController.text = DateTime.now().year.toString();
+    }
+    
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Vehicle Information'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: makeController,
+                  decoration: InputDecoration(
+                    labelText: 'Vehicle Make (e.g., Toyota)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                SizedBox(height: 16),
+                TextField(
+                  controller: modelController,
+                  decoration: InputDecoration(
+                    labelText: 'Vehicle Model (e.g., Camry)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                SizedBox(height: 16),
+                TextField(
+                  controller: yearController,
+                  decoration: InputDecoration(
+                    labelText: 'Vehicle Year',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (makeController.text.isNotEmpty && 
+                    modelController.text.isNotEmpty && 
+                    yearController.text.isNotEmpty) {
+                  Navigator.of(context).pop(true);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Please fill in all vehicle information.'),
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                  );
+                }
+              },
+              child: Text('Continue'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _uploadImage(BuildContext context, AppState appState, ImageSource source) async {
     setState(() { _isUploading = true; });
     try {
       final imageFile = source == ImageSource.camera
-          ? await ImageService.pickImageFromCamera(context)
-          : await ImageService.pickImageFromGallery(context);
+          ? await ImageService.pickImageFromCamera()
+          : await ImageService.pickImageFromGallery();
           
       if (imageFile != null) {
         // Validate the image file
@@ -552,7 +1039,40 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         // Show image confirmation dialog
         final confirmed = await _showImageConfirmation(context, imageFile);
         if (confirmed && mounted) {
-          await appState.addReport(imageFile, description: descController.text);
+          // Get the current authenticated user's ID
+          final userState = Provider.of<UserState>(context, listen: false);
+          if (userState.isAuthenticated && userState.userId != null) {
+            // Show vehicle information dialog
+            final vehicleConfirmed = await _showVehicleInfoDialog(context);
+            if (vehicleConfirmed == true && mounted) {
+              await appState.addReport(
+                ownerId: userState.userId!,
+                vehicleMake: makeController.text,
+                vehicleModel: modelController.text,
+                vehicleYear: int.parse(yearController.text),
+                damageDescription: descController.text,
+                image: imageFile,
+                estimatedCost: 0.0,
+                additionalNotes: null,
+              );
+              
+              // Clear vehicle info controllers
+              makeController.clear();
+              modelController.clear();
+              yearController.clear();
+            }
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Please log in to submit damage reports.'),
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+            return;
+          }
           descController.clear();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -583,6 +1103,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   @override
   void dispose() {
     descController.dispose();
+    makeController.dispose();
+    modelController.dispose();
+    yearController.dispose();
     super.dispose();
   }
 }

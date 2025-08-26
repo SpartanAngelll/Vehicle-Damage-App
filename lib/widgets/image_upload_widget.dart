@@ -1,0 +1,383 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import '../services/image_service.dart';
+import '../services/storage_service.dart';
+
+class ImageUploadWidget extends StatefulWidget {
+  final Function(List<String>) onImagesUploaded;
+  final Function(List<File>) onImagesSelected;
+  final int maxImages;
+  final String title;
+  final String subtitle;
+  final bool showQualitySelector;
+  final ImageQuality defaultQuality;
+
+  const ImageUploadWidget({
+    super.key,
+    required this.onImagesUploaded,
+    required this.onImagesSelected,
+    this.maxImages = 5,
+    this.title = 'Upload Images',
+    this.subtitle = 'Select images from gallery or take photos',
+    this.showQualitySelector = true,
+    this.defaultQuality = ImageQuality.medium,
+  });
+
+  @override
+  State<ImageUploadWidget> createState() => _ImageUploadWidgetState();
+}
+
+class _ImageUploadWidgetState extends State<ImageUploadWidget> {
+  final List<File> _selectedImages = [];
+  bool _isUploading = false;
+  double _uploadProgress = 0.0;
+  String? _uploadError;
+  ImageQuality _selectedQuality = ImageQuality.medium;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedQuality = widget.defaultQuality;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  if (widget.subtitle.isNotEmpty)
+                    Text(
+                      widget.subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (widget.showQualitySelector) _buildQualitySelector(),
+          ],
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Image selection buttons
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _selectedImages.length >= widget.maxImages ? null : _pickImagesFromGallery,
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Gallery'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _selectedImages.length >= widget.maxImages ? null : _pickImagesFromCamera,
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Camera'),
+              ),
+            ),
+          ],
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Selected images preview
+        if (_selectedImages.isNotEmpty) ...[
+          Text(
+            'Selected Images (${_selectedImages.length}/${widget.maxImages})',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          _buildImageGrid(),
+          const SizedBox(height: 16),
+        ],
+        
+        // Upload button
+        if (_selectedImages.isNotEmpty && !_isUploading)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _uploadImages,
+              icon: const Icon(Icons.cloud_upload),
+              label: const Text('Upload Images'),
+            ),
+          ),
+        
+        // Upload progress
+        if (_isUploading) ...[
+          const SizedBox(height: 16),
+          LinearProgressIndicator(value: _uploadProgress),
+          const SizedBox(height: 8),
+          Text(
+            'Uploading... ${(_uploadProgress * 100).toInt()}%',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        
+        // Error message
+        if (_uploadError != null) ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _uploadError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _uploadError = null),
+                  icon: Icon(
+                    Icons.close,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildQualitySelector() {
+    return PopupMenuButton<ImageQuality>(
+      initialValue: _selectedQuality,
+      onSelected: (ImageQuality quality) {
+        setState(() {
+          _selectedQuality = quality;
+        });
+      },
+      itemBuilder: (BuildContext context) => ImageQuality.values.map((ImageQuality quality) {
+        return PopupMenuItem<ImageQuality>(
+          value: quality,
+          child: Row(
+            children: [
+              Icon(
+                quality == _selectedQuality ? Icons.check : Icons.radio_button_unchecked,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(quality.displayName),
+            ],
+          ),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_selectedQuality.displayName),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: 1,
+      ),
+      itemCount: _selectedImages.length,
+      itemBuilder: (context, index) {
+        final image = _selectedImages[index];
+        return Stack(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                image,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  onPressed: () => _removeImage(index),
+                  icon: const Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 24,
+                    minHeight: 24,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 4,
+              left: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  ImageService.getFileSizeString(image),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImagesFromGallery() async {
+    try {
+      final images = await ImageService.pickMultipleImagesFromGallery(
+        quality: _selectedQuality,
+        maxImages: widget.maxImages - _selectedImages.length,
+      );
+      
+      if (images.isNotEmpty) {
+        setState(() {
+          _selectedImages.addAll(images);
+        });
+        widget.onImagesSelected(_selectedImages);
+      }
+    } catch (e) {
+      _showError('Failed to pick images: $e');
+    }
+  }
+
+  Future<void> _pickImagesFromCamera() async {
+    try {
+      final images = await ImageService.pickMultipleImagesFromCamera(
+        quality: _selectedQuality,
+        maxImages: widget.maxImages - _selectedImages.length,
+      );
+      
+      if (images.isNotEmpty) {
+        setState(() {
+          _selectedImages.addAll(images);
+        });
+        widget.onImagesSelected(_selectedImages);
+      }
+    } catch (e) {
+      _showError('Failed to take photos: $e');
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() {
+      _selectedImages.removeAt(index);
+    });
+    widget.onImagesSelected(_selectedImages);
+  }
+
+  Future<void> _uploadImages() async {
+    if (_selectedImages.isEmpty) return;
+
+    setState(() {
+      _isUploading = true;
+      _uploadProgress = 0.0;
+      _uploadError = null;
+    });
+
+    try {
+      // Simulate upload progress (in real app, this would come from StorageService)
+      for (int i = 0; i < _selectedImages.length; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        setState(() {
+          _uploadProgress = (i + 1) / _selectedImages.length;
+        });
+      }
+
+      // In a real app, you would call StorageService.uploadImages here
+      // For now, we'll simulate successful upload
+      final imageUrls = _selectedImages.map((file) => 'https://example.com/${file.path}').toList();
+      
+      widget.onImagesUploaded(imageUrls);
+      
+      setState(() {
+        _isUploading = false;
+        _uploadProgress = 1.0;
+      });
+      
+      // Clear selected images after successful upload
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() {
+            _selectedImages.clear();
+          });
+          widget.onImagesSelected(_selectedImages);
+        }
+      });
+      
+    } catch (e) {
+      setState(() {
+        _isUploading = false;
+        _uploadError = 'Upload failed: $e';
+      });
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+}
+

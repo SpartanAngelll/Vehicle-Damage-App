@@ -40,51 +40,47 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // TODO: Replace with your actual Firebase project configuration
-  // You can get these values from your Firebase Console
-  // Go to Project Settings > General > Your apps
-  
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyC-example-web-api-key',
-    appId: '1:123456789012:web:abcdef1234567890',
-    messagingSenderId: '123456789012',
-    projectId: 'vehicle-damage-app-example',
-    authDomain: 'vehicle-damage-app-example.firebaseapp.com',
-    storageBucket: 'vehicle-damage-app-example.appspot.com',
-    measurementId: 'G-EXAMPLE123',
+    apiKey: 'AIzaSyDD5ciO4nl9QvGMCFAydmInCF3uFx6flcg',
+    appId: '1:875116012151:web:c56d617ebb4a3921521c72',
+    messagingSenderId: '875116012151',
+    projectId: 'vehicle-damage-app',
+    authDomain: 'vehicle-damage-app.firebaseapp.com',
+    storageBucket: 'vehicle-damage-app.firebasestorage.app',
+    measurementId: 'G-PJ1TDCSVY8',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyC-example-android-api-key',
-    appId: '1:123456789012:android:abcdef1234567890',
-    messagingSenderId: '123456789012',
-    projectId: 'vehicle-damage-app-example',
-    storageBucket: 'vehicle-damage-app-example.appspot.com',
+    apiKey: 'AIzaSyAj0LfXbmB0y9S6l5AYvBL82Buyp--w4ag',
+    appId: '1:875116012151:android:a864253f4743b9f8521c72',
+    messagingSenderId: '875116012151',
+    projectId: 'vehicle-damage-app',
+    storageBucket: 'vehicle-damage-app.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyC-example-ios-api-key',
-    appId: '1:123456789012:ios:abcdef1234567890',
-    messagingSenderId: '123456789012',
-    projectId: 'vehicle-damage-app-example',
-    storageBucket: 'vehicle-damage-app-example.appspot.com',
+    apiKey: 'AIzaSyDD5ciO4nl9QvGMCFAydmInCF3uFx6flcg',
+    appId: '1:875116012151:ios:vehicle-damage-app-ios',
+    messagingSenderId: '875116012151',
+    projectId: 'vehicle-damage-app',
+    storageBucket: 'vehicle-damage-app.firebasestorage.app',
     iosBundleId: 'com.example.vehicleDamageApp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyC-example-macos-api-key',
-    appId: '1:123456789012:macos:abcdef1234567890',
-    messagingSenderId: '123456789012',
-    projectId: 'vehicle-damage-app-example',
-    storageBucket: 'vehicle-damage-app-example.appspot.com',
+    apiKey: 'AIzaSyDD5ciO4nl9QvGMCFAydmInCF3uFx6flcg',
+    appId: '1:875116012151:macos:vehicle-damage-app-macos',
+    messagingSenderId: '875116012151',
+    projectId: 'vehicle-damage-app',
+    storageBucket: 'vehicle-damage-app.firebasestorage.app',
     iosBundleId: 'com.example.vehicleDamageApp',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyC-example-windows-api-key',
-    appId: '1:123456789012:windows:abcdef1234567890',
-    messagingSenderId: '123456789012',
-    projectId: 'vehicle-damage-app-example',
-    storageBucket: 'vehicle-damage-app-example.appspot.com',
+    apiKey: 'AIzaSyDD5ciO4nl9QvGMCFAydmInCF3uFx6flcg',
+    appId: '1:875116012151:windows:vehicle-damage-app-windows',
+    messagingSenderId: '875116012151',
+    projectId: 'vehicle-damage-app',
+    storageBucket: 'vehicle-damage-app.firebasestorage.app',
   );
 }

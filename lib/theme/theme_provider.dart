@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/storage_service.dart';
+import '../services/local_storage_service.dart';
 import 'app_theme.dart';
 
 class ThemeProvider extends ChangeNotifier {
@@ -27,7 +27,7 @@ class ThemeProvider extends ChangeNotifier {
   // Load saved theme mode from storage
   Future<void> _loadThemeMode() async {
     try {
-      final themeModeString = await StorageService.getThemeMode();
+      final themeModeString = await LocalStorageService.getThemeMode();
       if (themeModeString != null) {
         final themeIndex = int.tryParse(themeModeString) ?? 0;
         if (themeIndex >= 0 && themeIndex < ThemeMode.values.length) {
@@ -44,7 +44,7 @@ class ThemeProvider extends ChangeNotifier {
   // Save theme mode to storage
   Future<void> _saveThemeMode() async {
     try {
-      await StorageService.saveThemeMode(_themeMode.index.toString());
+      await LocalStorageService.saveThemeMode(_themeMode.index.toString());
     } catch (e) {
       // Log error for debugging (in production, you might want to send this to a logging service)
       debugPrint('Failed to save theme mode: $e');

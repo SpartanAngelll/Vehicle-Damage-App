@@ -4,6 +4,8 @@ import '../models/models.dart';
 import '../utils/responsive_utils.dart';
 import 'responsive_layout.dart';
 import 'damage_report_card.dart';
+import '../services/firebase_auth_service.dart';
+import '../services/firebase_firestore_service.dart';
 
 class RepairProfessionalDashboard extends StatefulWidget {
   const RepairProfessionalDashboard({super.key});
@@ -20,6 +22,15 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    
+    // Don't auto-load estimates to prevent UI blocking
+  }
+  
+  Future<void> _loadEstimates() async {
+    final userState = context.read<UserState>();
+    if (userState.isAuthenticated && userState.userId != null) {
+      await userState.loadEstimatesForProfessional();
+    }
   }
 
   @override
@@ -87,11 +98,75 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
   Widget _buildIncomingJobsTab(BuildContext context) {
     return Consumer2<AppState, UserState>(
       builder: (context, appState, userState, child) {
+        debugPrint('RepairDashboard: userState.isRepairman: ${userState.isRepairman}, userId: ${userState.userId}');
+        debugPrint('RepairDashboard: userState.role: ${userState.role}, isAuthenticated: ${userState.isAuthenticated}');
+        
         if (!userState.isRepairman || userState.userId == null) {
           return Center(
             child: Text(
               'Access denied. Please sign in as a repair professional.',
               style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          );
+        }
+
+        // Check if app state has been initialized with data
+        if (appState.reports.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.hourglass_empty,
+                  size: ResponsiveUtils.getResponsiveIconSize(
+                    context,
+                    mobile: 64,
+                    tablet: 80,
+                    desktop: 96,
+                  ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+                Text(
+                  'Loading Available Jobs...',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontSize: ResponsiveUtils.getResponsiveFontSize(
+                      context,
+                      mobile: 20,
+                      tablet: 24,
+                      desktop: 28,
+                    ),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                Text(
+                  'Please wait while we load the latest damage reports.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontSize: ResponsiveUtils.getResponsiveFontSize(
+                      context,
+                      mobile: 16,
+                      tablet: 18,
+                      desktop: 20,
+                    ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Trigger a refresh of available jobs
+                    appState.notifyListeners();
+                  },
+                  icon: Icon(Icons.refresh),
+                  label: Text('Refresh'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  ),
+                ),
+              ],
             ),
           );
         }
@@ -227,6 +302,32 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
           length: 3,
           child: Column(
             children: [
+              // Refresh button
+              Container(
+                padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'My Estimates',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 20, tablet: 24, desktop: 28),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _loadEstimates,
+                      icon: Icon(Icons.refresh),
+                      label: Text('Refresh'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               // Summary cards
               Container(
                 padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
@@ -676,6 +777,208 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
               
               SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
               
+              // Test Firestore connectivity
+              Card(
+                child: Padding(
+                  padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Firestore Test",
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(
+                            context,
+                            mobile: 16,
+                            tablet: 18,
+                            desktop: 20,
+                          ),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            final firestoreService = context.read<FirebaseFirestoreService>();
+                            final isConnected = await firestoreService.testFirestoreConnection();
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(isConnected 
+                                    ? 'Firestore connection test successful!' 
+                                    : 'Firestore connection test failed!'),
+                                  backgroundColor: isConnected 
+                                    ? Theme.of(context).colorScheme.primary 
+                                    : Theme.of(context).colorScheme.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Firestore test error: ${e.toString()}'),
+                                  backgroundColor: Theme.of(context).colorScheme.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: Text('Test Firestore Connection'),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            final firestoreService = context.read<FirebaseFirestoreService>();
+                            await firestoreService.testFirestoreWritePermissions();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Firestore write permissions test completed'),
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Firestore write permissions test failed: $e'),
+                                  backgroundColor: Theme.of(context).colorScheme.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: Text('Test Write Permissions'),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            final firestoreService = context.read<FirebaseFirestoreService>();
+                            
+                            // Create a test estimate
+                            final testEstimateId = await firestoreService.createEstimate(
+                              reportId: 'test_report_${DateTime.now().millisecondsSinceEpoch}',
+                              ownerId: 'test_owner',
+                              professionalId: userState.userId ?? 'test_professional',
+                              professionalEmail: userState.email ?? 'test@example.com',
+                              professionalBio: 'Test professional',
+                              cost: 100.0,
+                              leadTimeDays: 3,
+                              description: 'This is a test estimate to verify Firestore connectivity',
+                            );
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Test estimate created successfully! ID: $testEstimateId'),
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Test estimate creation failed: ${e.toString()}'),
+                                  backgroundColor: Theme.of(context).colorScheme.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: Text('Create Test Estimate'),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            final firestoreService = context.read<FirebaseFirestoreService>();
+                            
+                            // Create a test damage report
+                            final testReportId = await firestoreService.createDamageReport(
+                              ownerId: 'test_owner',
+                              vehicleMake: 'Toyota',
+                              vehicleModel: 'Camry',
+                              vehicleYear: 2020,
+                              damageDescription: 'Test damage report for demonstration',
+                              estimatedCost: 5000.0,
+                              additionalNotes: 'This is a test damage report',
+                            );
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Test damage report created successfully! ID: $testReportId'),
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Test damage report creation failed: ${e.toString()}'),
+                                  backgroundColor: Theme.of(context).colorScheme.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: Text('Create Test Damage Report'),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            final firestoreService = context.read<FirebaseFirestoreService>();
+                            
+                            // Load pending damage reports
+                            final reports = await firestoreService.getAllPendingDamageReports();
+                            
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Loaded ${reports.length} pending damage reports'),
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to load pending damage reports: ${e.toString()}'),
+                                  backgroundColor: Theme.of(context).colorScheme.error,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: Text('Load Pending Damage Reports'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+              
               // Bio section
               Card(
                 child: Padding(
@@ -933,11 +1236,13 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
           ElevatedButton(
             onPressed: () async {
               try {
+                final authService = context.read<FirebaseAuthService>();
                 final userState = context.read<UserState>();
                 final navigator = Navigator.of(context);
-                final scaffoldMessenger = ScaffoldMessenger.of(context);
                 
-                await userState.signOut();
+                await authService.signOut();
+                userState.clearUserState();
+                
                 navigator.pop(); // Close dialog first
                 if (mounted) {
                   navigator.pushReplacementNamed('/login');

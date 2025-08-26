@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/responsive_utils.dart';
 import '../widgets/responsive_layout.dart';
-import '../services/storage_service.dart';
+import '../services/local_storage_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -21,7 +21,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkOnboardingStatus() async {
     try {
-      final hasCompletedOnboarding = await StorageService.isOnboardingCompleted();
+      final hasCompletedOnboarding = await LocalStorageService.isOnboardingCompleted();
       if (mounted) {
         Future.delayed(Duration(seconds: 2), () {
           if (mounted) {

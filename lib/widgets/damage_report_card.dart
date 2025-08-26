@@ -84,31 +84,33 @@ class _DamageReportCardState extends State<DamageReportCard> {
           ),
         ),
         SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.file(
-            widget.report.image,
-            width: double.infinity,
-            height: ResponsiveUtils.isMobile(context) ? 200 : 250,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                width: double.infinity,
-                height: ResponsiveUtils.isMobile(context) ? 200 : 250,
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.error_outline,
-                  size: ResponsiveUtils.getResponsiveIconSize(context, mobile: 48, tablet: 56, desktop: 64),
-                  color: Theme.of(context).colorScheme.error,
-                ),
-              );
-            },
+        if (widget.report.image != null) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              widget.report.image!,
+              width: double.infinity,
+              height: ResponsiveUtils.isMobile(context) ? 200 : 250,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  width: double.infinity,
+                  height: ResponsiveUtils.isMobile(context) ? 200 : 250,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.error_outline,
+                    size: ResponsiveUtils.getResponsiveIconSize(context, mobile: 48, tablet: 56, desktop: 64),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        if (widget.report.description.isNotEmpty) ...[
+        ],
+        if (widget.report.damageDescription.isNotEmpty) ...[
           SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
           Text(
-            "Description: ${widget.report.description}",
+            "Description: ${widget.report.damageDescription}",
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
             ),
@@ -568,6 +570,71 @@ class _DamageReportCardState extends State<DamageReportCard> {
             
             SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
             
+            // Status information for accepted/declined estimates
+            if (estimate.status != EstimateStatus.pending) ...[
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+                decoration: BoxDecoration(
+                  color: estimate.status == EstimateStatus.accepted 
+                      ? Colors.green.withValues(alpha: 0.1)
+                      : Colors.red.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: estimate.status == EstimateStatus.accepted 
+                        ? Colors.green.withValues(alpha: 0.3)
+                        : Colors.red.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          estimate.status == EstimateStatus.accepted ? Icons.check_circle : Icons.cancel,
+                          color: estimate.status == EstimateStatus.accepted ? Colors.green : Colors.red,
+                          size: ResponsiveUtils.getResponsiveIconSize(context, mobile: 16, tablet: 18, desktop: 20),
+                        ),
+                        SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 6, tablet: 8, desktop: 10)),
+                        Text(
+                          estimate.status == EstimateStatus.accepted ? "Estimate Accepted" : "Estimate Declined",
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 14, tablet: 16, desktop: 18),
+                            fontWeight: FontWeight.bold,
+                            color: estimate.status == EstimateStatus.accepted ? Colors.green : Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 6, tablet: 8, desktop: 10)),
+                    Text(
+                      estimate.status == EstimateStatus.accepted 
+                          ? "Cost: \$${estimate.cost.toStringAsFixed(2)}"
+                          : "Cost: \$${estimate.cost.toStringAsFixed(2)}",
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 13, tablet: 15, desktop: 17),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (estimate.acceptedAt != null || estimate.declinedAt != null) ...[
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 4, tablet: 6, desktop: 8)),
+                      Text(
+                        estimate.status == EstimateStatus.accepted 
+                            ? "Accepted on: ${_formatDate(estimate.acceptedAt!)}"
+                            : "Declined on: ${_formatDate(estimate.declinedAt!)}",
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 11, tablet: 13, desktop: 15),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+            ],
+            
             // Action buttons - Only show for vehicle owners and only for pending estimates
             Consumer<UserState>(
               builder: (context, userState, child) {
@@ -654,45 +721,73 @@ class _DamageReportCardState extends State<DamageReportCard> {
     }
   }
 
-  void _acceptEstimate(BuildContext context, int estimateIndex) {
+  Future<void> _acceptEstimate(BuildContext context, int estimateIndex) async {
     final appState = context.read<AppState>();
     final selectedReport = appState.selectedReport;
     
     if (selectedReport != null) {
-      appState.updateEstimateStatus(
-        appState.selectedReportIndex!,
-        estimateIndex,
-        EstimateStatus.accepted,
-      );
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Estimate accepted! We\'ll notify the repair professional.'),
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      try {
+        await appState.updateEstimateStatus(
+          appState.selectedReportIndex!,
+          estimateIndex,
+          EstimateStatus.accepted,
+        );
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Estimate accepted! We\'ll notify the repair professional.'),
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to accept estimate: ${e.toString()}'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
     }
   }
 
-  void _declineEstimate(BuildContext context, int estimateIndex) {
+  Future<void> _declineEstimate(BuildContext context, int estimateIndex) async {
     final appState = context.read<AppState>();
     final selectedReport = appState.selectedReport;
     
     if (selectedReport != null) {
-      appState.updateEstimateStatus(
-        appState.selectedReportIndex!,
-        estimateIndex,
-        EstimateStatus.declined,
-      );
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Estimate declined.'),
-          backgroundColor: Theme.of(context).colorScheme.secondary,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      try {
+        await appState.updateEstimateStatus(
+          appState.selectedReportIndex!,
+          estimateIndex,
+          EstimateStatus.declined,
+        );
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Estimate declined.'),
+              backgroundColor: Theme.of(context).colorScheme.secondary,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to decline estimate: ${e.toString()}'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -747,6 +842,8 @@ class _DamageReportCardState extends State<DamageReportCard> {
       // Get current user information for the estimate
       if (userState.isRepairman && userState.userId != null && userState.email != null) {
         final estimate = Estimate(
+          reportId: widget.report.id,
+          ownerId: widget.report.ownerId,
           repairProfessionalId: userState.userId!,
           repairProfessionalEmail: userState.email!,
           repairProfessionalBio: userState.bio,

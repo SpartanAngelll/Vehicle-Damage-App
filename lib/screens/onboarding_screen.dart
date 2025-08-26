@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/responsive_utils.dart';
 import '../widgets/responsive_layout.dart';
-import '../services/storage_service.dart';
+import '../services/local_storage_service.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -63,7 +63,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _finishOnboarding() async {
     try {
-      await StorageService.setOnboardingCompleted();
+      await LocalStorageService.setOnboardingCompleted();
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/permissions');
       }
@@ -77,7 +77,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _skipOnboarding() async {
     try {
-      await StorageService.setOnboardingCompleted();
+      await LocalStorageService.setOnboardingCompleted();
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/permissions');
       }

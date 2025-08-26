@@ -1,212 +1,266 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as path;
 
 class StorageService {
-  // Theme storage
-  static const String _themeModeKey = 'theme_mode';
+  static final FirebaseStorage _storage = FirebaseStorage.instance;
   
-  // User data storage
-  static const String _userIdKey = 'user_id';
-  static const String _userEmailKey = 'user_email';
-  static const String _userPhoneKey = 'user_phone';
-  static const String _userRoleKey = 'user_role';
-  static const String _userBioKey = 'user_bio';
-  static const String _isAuthenticatedKey = 'is_authenticated';
-  static const String _lastLoginTimeKey = 'last_login_time';
-  
-  // App settings storage
-  static const String _isFirstLaunchKey = 'is_first_launch';
-  static const String _onboardingCompletedKey = 'onboarding_completed';
-  static const String _damageReportsMetadataKey = 'damage_reports_metadata';
+  // Storage references
+  static Reference get _damageReportsRef => _storage.ref('damage_reports');
+  static Reference get _estimatesRef => _storage.ref('estimates');
+  static Reference get _userProfilesRef => _storage.ref('user_profiles');
 
-  // Theme methods
-  static Future<void> saveThemeMode(String themeMode) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themeModeKey, themeMode);
-  }
-
-  static Future<String?> getThemeMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_themeModeKey);
-  }
-
-  // User data methods
-  static Future<void> saveUserId(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userIdKey, userId);
-  }
-
-  static Future<String?> getUserId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_userIdKey);
-  }
-
-  static Future<void> saveUserEmail(String email) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userEmailKey, email);
-  }
-
-  static Future<String?> getUserEmail() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_userEmailKey);
-  }
-
-  static Future<void> saveUserPhone(String phone) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userPhoneKey, phone);
-  }
-
-  static Future<String?> getUserPhone() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_userPhoneKey);
-  }
-
-  static Future<void> saveUserRole(String role) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userRoleKey, role);
-  }
-
-  static Future<String?> getUserRole() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_userRoleKey);
-  }
-
-  // User bio methods
-  static Future<void> saveUserBio(String bio) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userBioKey, bio);
-  }
-
-  static Future<String?> getUserBio() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_userBioKey);
-  }
-
-  static Future<void> saveIsAuthenticated(bool isAuthenticated) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_isAuthenticatedKey, isAuthenticated);
-  }
-
-  static Future<bool?> getIsAuthenticated() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_isAuthenticatedKey);
-  }
-
-  static Future<void> saveLastLoginTime(DateTime lastLoginTime) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_lastLoginTimeKey, lastLoginTime.millisecondsSinceEpoch);
-  }
-
-  static Future<DateTime?> getLastLoginTime() async {
-    final prefs = await SharedPreferences.getInstance();
-    final timestamp = prefs.getInt(_lastLoginTimeKey);
-    if (timestamp != null) {
-      return DateTime.fromMillisecondsSinceEpoch(timestamp);
-    }
-    return null;
-  }
-
-  // App settings methods
-  static Future<void> saveIsFirstLaunch(bool isFirstLaunch) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_isFirstLaunchKey, isFirstLaunch);
-  }
-
-  static Future<bool> getIsFirstLaunch() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_isFirstLaunchKey) ?? true;
-  }
-
-  static Future<void> setOnboardingCompleted({bool completed = true}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_onboardingCompletedKey, completed);
-  }
-
-  static Future<bool> isOnboardingCompleted() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_onboardingCompletedKey) ?? false;
-  }
-
-  // Damage reports metadata methods
-  static Future<void> saveDamageReportsMetadata(List<Map<String, dynamic>> metadata) async {
-    final prefs = await SharedPreferences.getInstance();
-    final metadataJson = metadata.map((item) => {
-      'id': item['id'],
-      'description': item['description'],
-      'timestamp': item['timestamp'],
-      'estimateCount': item['estimateCount'],
-      'hasEstimates': item['hasEstimates'],
-    }).toList();
-    
-    // Convert to JSON string for storage
-    final jsonString = metadataJson.toString();
-    await prefs.setString(_damageReportsMetadataKey, jsonString);
-  }
-
-  static Future<List<Map<String, dynamic>>> getDamageReportsMetadata() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_damageReportsMetadataKey);
-    if (jsonString != null && jsonString.isNotEmpty) {
-      try {
-        // Parse the stored string back to a list
-        // This is a simplified approach - in a real app you'd use proper JSON serialization
-        final List<Map<String, dynamic>> metadata = [];
-        // For now, return empty list since we can't easily reconstruct the metadata
-        // In a real app, you'd use jsonDecode and proper serialization
-        return metadata;
-      } catch (e) {
-        return [];
+  // Image compression and processing
+  static Future<Uint8List> compressImage(File imageFile, {
+    int maxWidth = 1024,
+    int maxHeight = 1024,
+    int quality = 85,
+  }) async {
+    try {
+      // Read image file
+      final bytes = await imageFile.readAsBytes();
+      final image = img.decodeImage(bytes);
+      
+      if (image == null) {
+        throw Exception('Failed to decode image');
       }
+
+      // Calculate new dimensions while maintaining aspect ratio
+      int newWidth = image.width;
+      int newHeight = image.height;
+      
+      if (image.width > maxWidth || image.height > maxHeight) {
+        if (image.width > image.height) {
+          newWidth = maxWidth;
+          newHeight = (image.height * maxWidth / image.width).round();
+        } else {
+          newHeight = maxHeight;
+          newWidth = (image.width * maxHeight / image.height).round();
+        }
+      }
+
+      // Resize image
+      final resizedImage = img.copyResize(
+        image,
+        width: newWidth,
+        height: newHeight,
+        interpolation: img.Interpolation.linear,
+      );
+
+      // Convert to JPEG with specified quality
+      final compressedBytes = img.encodeJpg(resizedImage, quality: quality);
+      
+      return Uint8List.fromList(compressedBytes);
+    } catch (e) {
+      throw Exception('Image compression failed: $e');
     }
-    return [];
   }
 
-  // Generic app setting methods
-  static Future<void> saveAppSetting<T>(String key, T value) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (value is String) {
-      await prefs.setString(key, value);
-    } else if (value is int) {
-      await prefs.setInt(key, value);
-    } else if (value is double) {
-      await prefs.setDouble(key, value);
-    } else if (value is bool) {
-      await prefs.setBool(key, value);
-    } else if (value is List<String>) {
-      await prefs.setStringList(key, value);
+  // Upload damage report images
+  static Future<List<String>> uploadDamageReportImages({
+    required String reportId,
+    required List<File> images,
+    required String ownerId,
+  }) async {
+    try {
+      final List<String> imageUrls = [];
+      
+      for (int i = 0; i < images.length; i++) {
+        final imageFile = images[i];
+        final fileName = '${reportId}_${i}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final imageRef = _damageReportsRef.child(ownerId).child(reportId).child(fileName);
+        
+        // Compress image before upload
+        final compressedImage = await compressImage(imageFile);
+        
+        // Upload compressed image
+        final uploadTask = imageRef.putData(
+          compressedImage,
+          SettableMetadata(
+            contentType: 'image/jpeg',
+            customMetadata: {
+              'originalName': path.basename(imageFile.path),
+              'uploadedAt': DateTime.now().toIso8601String(),
+              'compressed': 'true',
+            },
+          ),
+        );
+        
+        // Wait for upload to complete
+        final snapshot = await uploadTask;
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        imageUrls.add(downloadUrl);
+      }
+      
+      return imageUrls;
+    } catch (e) {
+      throw Exception('Failed to upload damage report images: $e');
     }
   }
 
-  static Future<T?> getAppSetting<T>(String key, T defaultValue) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (defaultValue is String) {
-      return prefs.getString(key) as T? ?? defaultValue;
-    } else if (defaultValue is int) {
-      return prefs.getInt(key) as T? ?? defaultValue;
-    } else if (defaultValue is double) {
-      return prefs.getDouble(key) as T? ?? defaultValue;
-    } else if (defaultValue is bool) {
-      return prefs.getBool(key) as T? ?? defaultValue;
-    } else if (defaultValue is List<String>) {
-      return prefs.getStringList(key) as T? ?? defaultValue;
+  // Upload estimate images
+  static Future<List<String>> uploadEstimateImages({
+    required String estimateId,
+    required List<File> images,
+    required String repairmanId,
+    required String reportId,
+  }) async {
+    try {
+      final List<String> imageUrls = [];
+      
+      for (int i = 0; i < images.length; i++) {
+        final imageFile = images[i];
+        final fileName = '${estimateId}_${i}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final imageRef = _estimatesRef.child(reportId).child(estimateId).child(fileName);
+        
+        // Compress image before upload
+        final compressedImage = await compressImage(imageFile);
+        
+        // Upload compressed image
+        final uploadTask = imageRef.putData(
+          compressedImage,
+          SettableMetadata(
+            contentType: 'image/jpeg',
+            customMetadata: {
+              'originalName': path.basename(imageFile.path),
+              'uploadedAt': DateTime.now().toIso8601String(),
+              'compressed': 'true',
+            },
+          ),
+        );
+        
+        // Wait for upload to complete
+        final snapshot = await uploadTask;
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+        imageUrls.add(downloadUrl);
+      }
+      
+      return imageUrls;
+    } catch (e) {
+      throw Exception('Failed to upload estimate images: $e');
     }
-    return defaultValue;
   }
 
-  // Clear user data
-  static Future<void> clearUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_userIdKey);
-    await prefs.remove(_userEmailKey);
-    await prefs.remove(_userPhoneKey);
-    await prefs.remove(_userRoleKey);
-    await prefs.remove(_userBioKey);
-    await prefs.remove(_isAuthenticatedKey);
-    await prefs.remove(_lastLoginTimeKey);
+  // Upload user profile image
+  static Future<String?> uploadUserProfileImage({
+    required String userId,
+    required File imageFile,
+  }) async {
+    try {
+      final fileName = 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final imageRef = _userProfilesRef.child(userId).child(fileName);
+      
+      // Compress image before upload
+      final compressedImage = await compressImage(imageFile, maxWidth: 512, maxHeight: 512);
+      
+      // Upload compressed image
+      final uploadTask = imageRef.putData(
+        compressedImage,
+        SettableMetadata(
+          contentType: 'image/jpeg',
+          customMetadata: {
+            'originalName': path.basename(imageFile.path),
+            'uploadedAt': DateTime.now().toIso8601String(),
+            'compressed': 'true',
+          },
+        ),
+      );
+      
+      // Wait for upload to complete
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      
+      return downloadUrl;
+    } catch (e) {
+      throw Exception('Failed to upload profile image: $e');
+    }
   }
 
-  // Clear all data
-  static Future<void> clearAllData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+  // Delete images
+  static Future<void> deleteImages(List<String> imageUrls) async {
+    try {
+      for (final imageUrl in imageUrls) {
+        final ref = _storage.refFromURL(imageUrl);
+        await ref.delete();
+      }
+    } catch (e) {
+      throw Exception('Failed to delete images: $e');
+    }
+  }
+
+  // Delete damage report images
+  static Future<void> deleteDamageReportImages({
+    required String reportId,
+    required String ownerId,
+  }) async {
+    try {
+      final reportRef = _damageReportsRef.child(ownerId).child(reportId);
+      final result = await reportRef.listAll();
+      
+      for (final item in result.items) {
+        await item.delete();
+      }
+    } catch (e) {
+      throw Exception('Failed to delete damage report images: $e');
+    }
+  }
+
+  // Delete estimate images
+  static Future<void> deleteEstimateImages({
+    required String estimateId,
+    required String reportId,
+  }) async {
+    try {
+      final estimateRef = _estimatesRef.child(reportId).child(estimateId);
+      final result = await estimateRef.listAll();
+      
+      for (final item in result.items) {
+        await item.delete();
+      }
+    } catch (e) {
+      throw Exception('Failed to delete estimate images: $e');
+    }
+  }
+
+  // Get image metadata
+  static Future<Map<String, dynamic>?> getImageMetadata(String imageUrl) async {
+    try {
+      final ref = _storage.refFromURL(imageUrl);
+      final metadata = await ref.getMetadata();
+      
+      return {
+        'name': metadata.name,
+        'size': metadata.size,
+        'contentType': metadata.contentType,
+        'timeCreated': metadata.timeCreated,
+        'updated': metadata.updated,
+        'customMetadata': metadata.customMetadata,
+      };
+    } catch (e) {
+      debugPrint('Failed to get image metadata: $e');
+      return null;
+    }
+  }
+
+  // Validate image file
+  static bool isValidImageFile(File file) {
+    final extension = path.extension(file.path).toLowerCase();
+    final validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+    
+    return validExtensions.contains(extension);
+  }
+
+  // Get file size in MB
+  static double getFileSizeInMB(File file) {
+    final bytes = file.lengthSync();
+    return bytes / (1024 * 1024);
+  }
+
+  // Check if file size is within limits
+  static bool isFileSizeValid(File file, {double maxSizeMB = 10.0}) {
+    return getFileSizeInMB(file) <= maxSizeMB;
   }
 }

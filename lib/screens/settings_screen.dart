@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
-import '../services/storage_service.dart';
+import '../services/local_storage_service.dart';
+import '../services/services.dart';
 import '../utils/responsive_utils.dart';
 import '../widgets/responsive_layout.dart';
 import '../widgets/theme_selector.dart';
@@ -27,9 +28,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadStorageInfo() async {
     try {
-      final userData = await StorageService.getUserId();
-      final themeMode = await StorageService.getThemeMode();
-      final onboardingCompleted = await StorageService.isOnboardingCompleted();
+      final userData = await LocalStorageService.getUserId();
+      final themeMode = await LocalStorageService.getThemeMode();
+      final onboardingCompleted = await LocalStorageService.isOnboardingCompleted();
       
       setState(() {
         _storageInfo = '''
@@ -579,6 +580,30 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 ),
               ],
             ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+            Semantics(
+              label: 'Sign out',
+              button: true,
+              child: ElevatedButton.icon(
+                onPressed: () => _signOut(context),
+                icon: Icon(Icons.logout),
+                label: Text(
+                  "Sign Out",
+                  style: TextStyle(
+                    fontSize: ResponsiveUtils.getResponsiveFontSize(
+                      context,
+                      mobile: 14,
+                      tablet: 16,
+                      desktop: 18,
+                    ),
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -858,7 +883,7 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
 
   Future<void> _toggleOnboarding(BuildContext context) async {
     try {
-      await StorageService.setOnboardingCompleted(completed: false);
+      await LocalStorageService.setOnboardingCompleted(completed: false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -895,7 +920,7 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
           ElevatedButton(
             onPressed: () async {
               try {
-                await StorageService.clearUserData();
+                await LocalStorageService.clearUserData();
                 Navigator.pop(context);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -944,7 +969,7 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
           ElevatedButton(
             onPressed: () async {
               try {
-                await StorageService.clearAllData();
+                await LocalStorageService.clearAllData();
                 Navigator.pop(context);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1022,6 +1047,37 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error requesting permissions: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _signOut(BuildContext context) async {
+    try {
+      final authService = context.read<FirebaseAuthService>();
+      final userState = context.read<UserState>();
+      
+      await authService.signOut();
+      userState.clearUserState();
+      
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Signed out successfully!'),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to sign out: ${e.toString()}'),
             backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),

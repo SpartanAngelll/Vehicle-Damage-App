@@ -1,139 +1,230 @@
-import 'package:image_picker/image_picker.dart';
-import 'package:flutter/material.dart';
 import 'dart:io';
-import 'permission_service.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'storage_service.dart';
+import 'package:image/image.dart' as img;
 
 class ImageService {
   static final ImagePicker _picker = ImagePicker();
 
-  static Future<File?> pickImageFromCamera(BuildContext context) async {
+  // Pick single image from camera
+  static Future<File?> pickImageFromCamera({
+    ImageQuality quality = ImageQuality.medium,
+  }) async {
     try {
-      // Check camera permission first
-      final hasPermission = await PermissionService.requestCameraPermission(context);
-      if (!hasPermission) {
-        throw Exception('Camera permission is required to take photos');
-      }
-
-      final XFile? picked = await _picker.pickImage(
+      final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 80,
-        maxWidth: 1920,
-        maxHeight: 1080,
+        imageQuality: _getImageQuality(quality),
+        maxWidth: _getMaxWidth(quality)?.toDouble(),
+        maxHeight: _getMaxHeight(quality)?.toDouble(),
       );
       
-      if (picked != null) {
-        return File(picked.path);
+      if (image != null) {
+        final file = File(image.path);
+        if (_validateImageFile(file)) {
+          return file;
+        } else {
+          throw Exception('Invalid image file');
+        }
       }
       return null;
     } catch (e) {
-      if (e.toString().contains('permission')) {
-        throw Exception('Camera permission denied. Please enable camera access in settings.');
-      } else if (e.toString().contains('camera')) {
-        throw Exception('Camera not available. Please check if camera is working.');
-      } else {
-        throw Exception('Failed to capture image: ${e.toString()}');
-      }
+      throw Exception('Failed to pick image from camera: $e');
     }
   }
 
-  static Future<File?> pickImageFromGallery(BuildContext context) async {
+  // Pick single image from gallery
+  static Future<File?> pickImageFromGallery({
+    ImageQuality quality = ImageQuality.medium,
+  }) async {
     try {
-      // Check storage permission for Android
-      final hasPermission = await PermissionService.requestStoragePermission(context);
-      if (!hasPermission) {
-        throw Exception('Storage permission is required to access photos');
-      }
-
-      final XFile? picked = await _picker.pickImage(
+      final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 1920,
-        maxHeight: 1080,
+        imageQuality: _getImageQuality(quality),
+        maxWidth: _getMaxWidth(quality)?.toDouble(),
+        maxHeight: _getMaxHeight(quality)?.toDouble(),
       );
       
-      if (picked != null) {
-        return File(picked.path);
+      if (image != null) {
+        final file = File(image.path);
+        if (_validateImageFile(file)) {
+          return file;
+        } else {
+          throw Exception('Invalid image file');
+        }
       }
       return null;
     } catch (e) {
-      if (e.toString().contains('permission')) {
-        throw Exception('Gallery permission denied. Please enable photo access in settings.');
-      } else if (e.toString().contains('gallery')) {
-        throw Exception('Gallery not available. Please check if gallery is accessible.');
-      } else {
-        throw Exception('Failed to select image: ${e.toString()}');
+      throw Exception('Failed to pick image from gallery: $e');
+    }
+  }
+
+  // Pick multiple images from gallery
+  static Future<List<File>> pickMultipleImagesFromGallery({
+    ImageQuality quality = ImageQuality.medium,
+    int maxImages = 5,
+  }) async {
+    try {
+      final List<XFile> images = await _picker.pickMultiImage(
+        imageQuality: _getImageQuality(quality),
+        maxWidth: _getMaxWidth(quality)?.toDouble(),
+        maxHeight: _getMaxHeight(quality)?.toDouble(),
+      );
+      
+      final List<File> validFiles = [];
+      
+      for (final image in images.take(maxImages)) {
+        final file = File(image.path);
+        if (_validateImageFile(file)) {
+          validFiles.add(file);
+        }
       }
+      
+      return validFiles;
+    } catch (e) {
+      throw Exception('Failed to pick multiple images: $e');
+    }
+  }
+
+  // Pick multiple images from camera (multiple shots)
+  static Future<List<File>> pickMultipleImagesFromCamera({
+    ImageQuality quality = ImageQuality.medium,
+    int maxImages = 5,
+  }) async {
+    try {
+      final List<File> images = [];
+      
+      for (int i = 0; i < maxImages; i++) {
+        final image = await pickImageFromCamera(quality: quality);
+        if (image != null) {
+          images.add(image);
+        } else {
+          break; // User cancelled
+        }
+      }
+      
+      return images;
+    } catch (e) {
+      throw Exception('Failed to pick multiple images from camera: $e');
     }
   }
 
   // Validate image file
+  static bool _validateImageFile(File file) {
+    if (!StorageService.isValidImageFile(file)) {
+      return false;
+    }
+    
+    if (!StorageService.isFileSizeValid(file)) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  // Public method for validating image files
   static bool isValidImageFile(File file) {
-    try {
-      if (!file.existsSync()) {
-        return false;
-      }
-      
-      final fileSize = file.lengthSync();
-      final maxSize = 10 * 1024 * 1024; // 10MB limit
-      
-      if (fileSize > maxSize) {
-        return false;
-      }
-      
-      // Check if it's a valid image by trying to read it
-      final bytes = file.readAsBytesSync();
-      if (bytes.length < 4) {
-        return false;
-      }
-      
-      // Basic image format validation
-      if (bytes[0] == 0xFF && bytes[1] == 0xD8) {
-        return true; // JPEG
-      } else if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
-        return true; // PNG
-      } else if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
-        return true; // GIF
-      } else if (bytes[0] == 0x42 && bytes[1] == 0x4D) {
-        return true; // BMP
-      }
-      
-      return false;
-    } catch (e) {
-      return false;
+    return _validateImageFile(file);
+  }
+
+  // Get image quality value for ImagePicker
+  static int _getImageQuality(ImageQuality quality) {
+    switch (quality) {
+      case ImageQuality.low:
+        return 50;
+      case ImageQuality.medium:
+        return 75;
+      case ImageQuality.high:
+        return 90;
+      case ImageQuality.original:
+        return 100;
     }
   }
 
-  // Get image file size in human-readable format
+  // Get max width for ImagePicker
+  static int? _getMaxWidth(ImageQuality quality) {
+    switch (quality) {
+      case ImageQuality.low:
+        return 512;
+      case ImageQuality.medium:
+        return 1024;
+      case ImageQuality.high:
+        return 2048;
+      case ImageQuality.original:
+        return null;
+    }
+  }
+
+  // Get max height for ImagePicker
+  static int? _getMaxHeight(ImageQuality quality) {
+    switch (quality) {
+      case ImageQuality.low:
+        return 512;
+      case ImageQuality.medium:
+        return 1024;
+      case ImageQuality.high:
+        return 2048;
+      case ImageQuality.original:
+        return null;
+    }
+  }
+
+  // Get file size in readable format
   static String getFileSizeString(File file) {
-    try {
-      final bytes = file.lengthSync();
-      if (bytes < 1024) {
-        return '$bytes B';
-      } else if (bytes < 1024 * 1024) {
-        return '${(bytes / 1024).toStringAsFixed(1)} KB';
-      } else {
-        return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-      }
-    } catch (e) {
-      return 'Unknown size';
+    final bytes = file.lengthSync();
+    if (bytes < 1024) {
+      return '$bytes B';
+    } else if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    } else {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
   }
 
-  // Compress image if needed
-  static Future<File?> compressImageIfNeeded(File file, {int maxSizeBytes = 5 * 1024 * 1024}) async {
+  // Check if image needs compression
+  static bool needsCompression(File file) {
+    return StorageService.getFileSizeInMB(file) > 2.0; // Compress if > 2MB
+  }
+
+  // Get image dimensions
+  static Future<Map<String, int>?> getImageDimensions(File file) async {
     try {
-      final fileSize = file.lengthSync();
+      final bytes = await file.readAsBytes();
+      final image = img.decodeImage(bytes);
       
-      if (fileSize <= maxSizeBytes) {
-        return file; // No compression needed
+      if (image != null) {
+        return {
+          'width': image.width,
+          'height': image.height,
+        };
       }
-      
-      // For now, return the original file
-      // In a production app, you might want to implement actual image compression
-      // using packages like flutter_image_compress
-      return file;
+      return null;
     } catch (e) {
-      return file; // Return original file if compression fails
+      return null;
+    }
+  }
+}
+
+// Image quality enum
+enum ImageQuality {
+  low,
+  medium,
+  high,
+  original,
+}
+
+// Extension for ImageQuality
+extension ImageQualityExtension on ImageQuality {
+  String get displayName {
+    switch (this) {
+      case ImageQuality.low:
+        return 'Low';
+      case ImageQuality.medium:
+        return 'Medium';
+      case ImageQuality.high:
+        return 'High';
+      case ImageQuality.original:
+        return 'Original';
     }
   }
 }
