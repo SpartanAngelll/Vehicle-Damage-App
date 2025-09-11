@@ -7,6 +7,36 @@ import 'package:image/image.dart' as img;
 class ImageService {
   static final ImagePicker _picker = ImagePicker();
 
+  // Generic pick image method
+  static Future<File?> pickImage({
+    required ImageSource source,
+    ImageQuality quality = ImageQuality.medium,
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        imageQuality: imageQuality ?? _getImageQuality(quality),
+        maxWidth: maxWidth ?? _getMaxWidth(quality)?.toDouble(),
+        maxHeight: maxHeight ?? _getMaxHeight(quality)?.toDouble(),
+      );
+      
+      if (image != null) {
+        final file = File(image.path);
+        if (_validateImageFile(file)) {
+          return file;
+        } else {
+          throw Exception('Invalid image file');
+        }
+      }
+      return null;
+    } catch (e) {
+      throw Exception('Failed to pick image: $e');
+    }
+  }
+
   // Pick single image from camera
   static Future<File?> pickImageFromCamera({
     ImageQuality quality = ImageQuality.medium,

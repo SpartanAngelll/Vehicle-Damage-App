@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../utils/responsive_utils.dart';
 import '../widgets/responsive_layout.dart';
 import '../services/services.dart';
+import '../services/firebase_firestore_service.dart';
 import '../models/models.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -38,17 +39,25 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildMobileLayout(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
+    return Center(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: MediaQuery.of(context).size.height - 
+                      MediaQuery.of(context).padding.top - 
+                      MediaQuery.of(context).padding.bottom,
+          ),
+          child: IntrinsicHeight(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
           // Header
           Semantics(
             label: 'Authentication heading',
             header: true,
             child: Text(
-              _isPasswordReset ? "Reset Password" : (_isSignUp ? "Create Account" : "Sign In"),
+              _isPasswordReset ? "Reset Password" : (_isSignUp ? "Join Multi-Service Network" : "Sign In"),
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 28, tablet: 32, desktop: 36),
                 fontWeight: FontWeight.bold,
@@ -71,7 +80,10 @@ class _LoginScreenState extends State<LoginScreen> {
           
           // Password Reset Link
           if (!_isSignUp && !_isPasswordReset) _buildPasswordResetLink(context),
-        ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -219,7 +231,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Expanded(
                       child: RadioListTile<String>(
-                        title: Text("Vehicle Owner"),
+                        title: Text("Service Customer"),
+                        subtitle: Text("Request services"),
                         value: "owner",
                         groupValue: _selectedRole,
                         onChanged: (value) => setState(() => _selectedRole = value!),
@@ -227,8 +240,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     Expanded(
                       child: RadioListTile<String>(
-                        title: Text("Repair Professional"),
-                        value: "repairman",
+                        title: Text("Service Professional"),
+                        subtitle: Text("Provide services"),
+                        value: "service_professional",
                         groupValue: _selectedRole,
                         onChanged: (value) => setState(() => _selectedRole = value!),
                       ),
@@ -266,7 +280,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   )
                 : Text(
-                    _isPasswordReset ? "Send Reset Email" : (_isSignUp ? "Create Account" : "Sign In"),
+                    _isPasswordReset ? "Send Reset Email" : (_isSignUp ? "Join Network" : "Sign In"),
                     style: TextStyle(
                       fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 16, tablet: 18, desktop: 20),
                     ),
@@ -367,12 +381,13 @@ class _LoginScreenState extends State<LoginScreen> {
     if (credential != null && mounted) {
       // Create user profile in Firestore
       final firestoreService = context.read<FirebaseFirestoreService>();
-      await firestoreService.createUserProfile(
-        userId: credential.user!.uid,
-        email: _emailController.text.trim(),
-        role: _selectedRole,
-        phone: _phoneController.text.trim(),
-      );
+      await firestoreService.createUserProfile({
+        'id': credential.user!.uid,
+        'email': _emailController.text.trim(),
+        'role': _selectedRole,
+        'phone': _phoneController.text.trim(),
+        'createdAt': DateTime.now().toIso8601String(),
+      });
 
       // Initialize UserState before navigation
       final userState = context.read<UserState>();
@@ -384,9 +399,13 @@ class _LoginScreenState extends State<LoginScreen> {
         bio: null,
       );
 
-      // Navigate to appropriate dashboard
-      final route = _selectedRole == 'owner' ? '/ownerDashboard' : '/repairmanDashboard';
-      Navigator.pushReplacementNamed(context, route);
+      // Navigate to appropriate screen
+      if (_selectedRole == 'owner') {
+        Navigator.pushReplacementNamed(context, '/ownerDashboard');
+      } else {
+        // For repair professionals, go to the new registration flow
+        Navigator.pushReplacementNamed(context, '/serviceProfessionalRegistration');
+      }
     }
   }
 
@@ -402,7 +421,13 @@ class _LoginScreenState extends State<LoginScreen> {
       final userProfile = await firestoreService.getUserProfile(credential.user!.uid);
       
       if (userProfile != null) {
-        final userType = userProfile['userType'] as String? ?? 'owner';
+        // Use 'role' field from Firestore, fallback to 'userType' for backward compatibility
+        final userType = userProfile['role'] as String? ?? userProfile['userType'] as String? ?? 'owner';
+        
+        debugPrint('🔍 [Login] User profile from Firestore: $userProfile');
+        debugPrint('🔍 [Login] Extracted userType: $userType');
+        debugPrint('🔍 [Login] User role field: ${userProfile['role']}');
+        debugPrint('🔍 [Login] User userType field: ${userProfile['userType']}');
         
         // Initialize UserState before navigation
         final userState = context.read<UserState>();
@@ -410,12 +435,33 @@ class _LoginScreenState extends State<LoginScreen> {
           userId: credential.user!.uid,
           email: userProfile['email'] ?? credential.user!.email ?? '',
           userType: userType,
-          phoneNumber: userProfile['phoneNumber'],
+          phoneNumber: userProfile['phone'],
           bio: userProfile['bio'],
+          currentUser: credential.user,
         );
         
-        final route = userType == 'owner' ? '/ownerDashboard' : '/repairmanDashboard';
-        Navigator.pushReplacementNamed(context, route);
+        if (userType == 'owner') {
+          Navigator.pushReplacementNamed(context, '/ownerDashboard');
+        } else {
+          // For service professionals, check if they have a complete profile
+          final firestoreService = context.read<FirebaseFirestoreService>();
+          try {
+            final professionalProfile = await firestoreService.getServiceProfessional(credential.user!.uid);
+            if (professionalProfile != null) {
+              // Profile exists, go to service professional dashboard
+              debugPrint('🔍 [Login] Navigating to service professional dashboard');
+              Navigator.pushReplacementNamed(context, '/repairmanDashboard');
+            } else {
+              // Profile doesn't exist, go to registration
+              debugPrint('🔍 [Login] No profile found, navigating to registration');
+              Navigator.pushReplacementNamed(context, '/serviceProfessionalRegistration');
+            }
+          } catch (e) {
+            // If there's an error, go to registration
+            debugPrint('🔍 [Login] Error checking profile, navigating to registration: $e');
+            Navigator.pushReplacementNamed(context, '/serviceProfessionalRegistration');
+          }
+        }
       } else {
         // Fallback to owner dashboard if profile not found
         Navigator.pushReplacementNamed(context, '/ownerDashboard');

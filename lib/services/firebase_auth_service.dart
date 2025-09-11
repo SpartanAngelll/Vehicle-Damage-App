@@ -6,6 +6,7 @@ class FirebaseAuthService extends ChangeNotifier {
   User? _user;
   bool _isLoading = false;
   String? _error;
+  bool _disposed = false;
 
   // Getters
   User? get user => _user;
@@ -15,9 +16,17 @@ class FirebaseAuthService extends ChangeNotifier {
 
   FirebaseAuthService() {
     _auth.authStateChanges().listen((User? user) {
-      _user = user;
-      notifyListeners();
+      if (!_disposed) {
+        _user = user;
+        notifyListeners();
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   // Sign up with email and password
@@ -137,18 +146,24 @@ class FirebaseAuthService extends ChangeNotifier {
 
   // Private methods
   void _setLoading(bool loading) {
-    _isLoading = loading;
-    notifyListeners();
+    if (!_disposed) {
+      _isLoading = loading;
+      notifyListeners();
+    }
   }
 
   void _setError(String error) {
-    _error = error;
-    notifyListeners();
+    if (!_disposed) {
+      _error = error;
+      notifyListeners();
+    }
   }
 
   void _clearError() {
-    _error = null;
-    notifyListeners();
+    if (!_disposed) {
+      _error = null;
+      notifyListeners();
+    }
   }
 
   String _getErrorMessage(String code) {

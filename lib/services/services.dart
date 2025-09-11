@@ -1,6 +1,12 @@
 export 'firebase_auth_service.dart';
-export 'firebase_firestore_service.dart';
 export 'image_service.dart';
 export 'permission_service.dart';
 export 'storage_service.dart';
 export 'local_storage_service.dart';
+export 'service_category_service.dart';
+export 'migration_service.dart';
+export 'simple_notification_service.dart';
+export 'real_time_distribution_service.dart';
+export 'app_initialization_service.dart';
+export 'chat_service.dart';
+export 'openai_service.dart';

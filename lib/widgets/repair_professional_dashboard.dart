@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../utils/responsive_utils.dart';
-import 'responsive_layout.dart';
-import 'damage_report_card.dart';
+import 'service_request_card.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/firebase_firestore_service.dart';
+import '../services/chat_service.dart';
+import '../screens/service_professional_profile_screen.dart';
+import '../screens/chat_screen.dart';
+import '../screens/my_bookings_screen.dart';
+import 'glow_card.dart';
+import 'time_picker_widget.dart';
 
 class RepairProfessionalDashboard extends StatefulWidget {
   const RepairProfessionalDashboard({super.key});
@@ -14,29 +21,26 @@ class RepairProfessionalDashboard extends StatefulWidget {
   State<RepairProfessionalDashboard> createState() => _RepairProfessionalDashboardState();
 }
 
-class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboard> with TickerProviderStateMixin {
-  late TabController _tabController;
-
+class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboard> {
+  int _selectedIndex = 0;
+  Set<String> _dismissedRequestIds = {};
+  List<Estimate> _cachedEstimates = [];
+  final ChatService _chatService = ChatService();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     
-    // Don't auto-load estimates to prevent UI blocking
-  }
-  
-  Future<void> _loadEstimates() async {
-    final userState = context.read<UserState>();
-    if (userState.isAuthenticated && userState.userId != null) {
-      await userState.loadEstimatesForProfessional();
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+    // Load dismissed requests from storage
+    _loadDismissedRequests();
+    
+    // Refresh service professional profile to ensure categories are loaded
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final userState = Provider.of<UserState>(context, listen: false);
+      if (userState.isAuthenticated && userState.userId != null) {
+        userState.refreshServiceProfessionalProfile();
+      }
+    });
   }
 
   @override
@@ -44,7 +48,7 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Professional Dashboard',
+          _getAppBarTitle(),
           style: TextStyle(
             fontSize: ResponsiveUtils.getResponsiveFontSize(
               context,
@@ -52,6 +56,8 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
               tablet: 24,
               desktop: 28,
             ),
+            fontWeight: FontWeight.w600,
+            fontFamily: 'Poppins',
           ),
         ),
         actions: [
@@ -66,153 +72,161 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
             tooltip: 'Logout',
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: [
-            Tab(
-              icon: Icon(Icons.work),
-              text: 'Incoming Jobs',
-            ),
-            Tab(
-              icon: Icon(Icons.assessment),
-              text: 'My Estimates',
-            ),
-            Tab(
-              icon: Icon(Icons.person),
-              text: 'Profile',
-            ),
-          ],
-        ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildIncomingJobsTab(context),
-          _buildMyEstimatesTab(context),
-          _buildProfileTab(context),
+      body: _getBody(),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,
+        selectedLabelStyle: TextStyle(
+          fontFamily: 'Inter',
+          fontWeight: FontWeight.w500,
+        ),
+        unselectedLabelStyle: TextStyle(
+          fontFamily: 'Inter',
+        ),
+        items: [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.work),
+            label: 'Service',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.assessment),
+            label: 'My Est',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.chat),
+            label: 'Chat',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_today),
+            label: 'Bookin',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildIncomingJobsTab(BuildContext context) {
-    return Consumer2<AppState, UserState>(
-      builder: (context, appState, userState, child) {
-        debugPrint('RepairDashboard: userState.isRepairman: ${userState.isRepairman}, userId: ${userState.userId}');
-        debugPrint('RepairDashboard: userState.role: ${userState.role}, isAuthenticated: ${userState.isAuthenticated}');
-        
-        if (!userState.isRepairman || userState.userId == null) {
-          return Center(
-            child: Text(
-              'Access denied. Please sign in as a repair professional.',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-          );
-        }
+  Widget _getBody() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildServiceRequestsTab(context);
+      case 1:
+        return _buildMyEstimatesTab(context);
+      case 2:
+        return _buildChatTab(context);
+      case 3:
+        return _buildMyBookingsTab(context);
+      case 4:
+        return _buildProfileTab(context);
+      default:
+        return _buildServiceRequestsTab(context);
+    }
+  }
 
-        // Check if app state has been initialized with data
-        if (appState.reports.isEmpty) {
+  String _getAppBarTitle() {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Service Requests';
+      case 1:
+        return 'My Estimates';
+      case 2:
+        return 'Chat';
+      case 3:
+        return 'Bookings';
+      case 4:
+        return 'Profile';
+      default:
+        return 'Service Requests';
+    }
+  }
+
+  Widget _buildServiceRequestsTab(BuildContext context) {
+    return Consumer<UserState>(
+      builder: (context, userState, child) {
+        if (!userState.isServiceProfessional || userState.userId == null) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.hourglass_empty,
-                  size: ResponsiveUtils.getResponsiveIconSize(
-                    context,
-                    mobile: 64,
-                    tablet: 80,
-                    desktop: 96,
-                  ),
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
                 Text(
-                  'Loading Available Jobs...',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontSize: ResponsiveUtils.getResponsiveFontSize(
-                      context,
-                      mobile: 20,
-                      tablet: 24,
-                      desktop: 28,
-                    ),
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Access denied. Please sign in as a service professional.',
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
-                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                const SizedBox(height: 16),
                 Text(
-                  'Please wait while we load the latest damage reports.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontSize: ResponsiveUtils.getResponsiveFontSize(
-                      context,
-                      mobile: 16,
-                      tablet: 18,
-                      desktop: 20,
-                    ),
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
+                  'Current role: ${userState.role?.toString() ?? "Unknown"}',
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // Trigger a refresh of available jobs
-                    appState.notifyListeners();
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () async {
+                    // Update user role in Firebase
+                    final firestoreService = FirebaseFirestoreService();
+                    await firestoreService.updateUserRole(userState.userId!, 'service_professional');
+                    
+                    // Force refresh user state
+                    await userState.forceUpdateRoleFromFirebase();
                   },
-                  icon: Icon(Icons.refresh),
-                  label: Text('Refresh'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                  ),
+                  child: const Text('Fix Role (Debug)'),
                 ),
               ],
             ),
           );
         }
 
-        final availableJobs = appState.getAvailableJobsForProfessional(userState.userId!);
+        return FutureBuilder<List<JobRequest>>(
+          future: _loadServiceRequests(userState),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        if (availableJobs.isEmpty) {
+            if (snapshot.hasError) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.check_circle_outline,
-                  size: ResponsiveUtils.getResponsiveIconSize(
-                    context,
-                    mobile: 64,
-                    tablet: 80,
-                    desktop: 96,
-                  ),
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
-                Text(
-                  'No Available Jobs',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontSize: ResponsiveUtils.getResponsiveFontSize(
-                      context,
-                      mobile: 20,
-                      tablet: 24,
-                      desktop: 28,
+                    Icon(Icons.error, size: 64, color: Colors.red),
+                    const SizedBox(height: 16),
+                    Text('Error loading service requests: ${snapshot.error}'),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => setState(() {}),
+                      child: const Text('Retry'),
                     ),
-                    fontWeight: FontWeight.bold,
-                  ),
+                  ],
                 ),
-                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+              );
+            }
+
+            final requests = snapshot.data ?? [];
+
+            if (requests.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.work_off, size: 64, color: Colors.grey),
+                    const SizedBox(height: 16),
                 Text(
-                  'All current damage reports have estimates submitted.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontSize: ResponsiveUtils.getResponsiveFontSize(
-                      context,
-                      mobile: 16,
-                      tablet: 18,
-                      desktop: 20,
+                      'No service requests available',
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                    const SizedBox(height: 8),
+                Text(
+                      'New requests matching your service categories will appear here.',
+                      style: Theme.of(context).textTheme.bodyMedium,
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -220,67 +234,21 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
           );
         }
 
-        return ResponsiveLayout(
-          mobile: _buildIncomingJobsMobile(context, availableJobs),
-          tablet: _buildIncomingJobsTablet(context, availableJobs),
-          desktop: _buildIncomingJobsDesktop(context, availableJobs),
-        );
-      },
-    );
-  }
-
-  Widget _buildIncomingJobsMobile(BuildContext context, List<DamageReport> availableJobs) {
     return ListView.builder(
-      padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-      itemCount: availableJobs.length,
+              padding: const EdgeInsets.all(16),
+              itemCount: requests.length,
       itemBuilder: (context, index) {
-        final report = availableJobs[index];
-        return DamageReportCard(
-          report: report,
+                final request = requests[index];
+                return ServiceRequestCard(
+                  request: request,
           index: index,
           showEstimateInput: true,
-        );
-      },
-    );
-  }
-
-  Widget _buildIncomingJobsTablet(BuildContext context, List<DamageReport> availableJobs) {
-    return GridView.builder(
-      padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 1.2,
-        crossAxisSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
-        mainAxisSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
-      ),
-      itemCount: availableJobs.length,
-      itemBuilder: (context, index) {
-        final report = availableJobs[index];
-        return DamageReportCard(
-          report: report,
-          index: index,
-          showEstimateInput: true,
-        );
-      },
-    );
-  }
-
-  Widget _buildIncomingJobsDesktop(BuildContext context, List<DamageReport> availableJobs) {
-    return GridView.builder(
-      padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1.0,
-        crossAxisSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
-        mainAxisSpacing: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
-      ),
-      itemCount: availableJobs.length,
-      itemBuilder: (context, index) {
-        final report = availableJobs[index];
-        return DamageReportCard(
-          report: report,
-          index: index,
-          showEstimateInput: true,
+                  onEstimateSubmitted: () => _showEstimateDialog(context, request),
+                  onDismiss: () => _handleDismissRequest(context, request),
+                );
+              },
+            );
+          },
         );
       },
     );
@@ -289,215 +257,57 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
   Widget _buildMyEstimatesTab(BuildContext context) {
     return Consumer<UserState>(
       builder: (context, userState, child) {
-        if (!userState.isRepairman) {
+        if (!userState.isServiceProfessional || userState.userId == null) {
           return Center(
             child: Text(
-              'Access denied. Please sign in as a repair professional.',
+              'Access denied. Please sign in as a service professional.',
               style: Theme.of(context).textTheme.bodyLarge,
             ),
           );
         }
 
-        return DefaultTabController(
-          length: 3,
-          child: Column(
-            children: [
-              // Refresh button
-              Container(
-                padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'My Estimates',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(context, mobile: 20, tablet: 24, desktop: 28),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _loadEstimates,
-                      icon: Icon(Icons.refresh),
-                      label: Text('Refresh'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Summary cards
-              Container(
-                padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildSummaryCard(
-                        context,
-                        'Total Submitted',
-                        userState.totalSubmittedEstimates.toString(),
-                        Icons.assessment,
-                        Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                    Expanded(
-                      child: _buildSummaryCard(
-                        context,
-                        'Pending',
-                        userState.totalPendingEstimates.toString(),
-                        Icons.schedule,
-                        Colors.orange,
-                      ),
-                    ),
-                    SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                    Expanded(
-                      child: _buildSummaryCard(
-                        context,
-                        'Accepted',
-                        userState.totalAcceptedEstimates.toString(),
-                        Icons.check_circle,
-                        Colors.green,
-                      ),
-                    ),
-                    SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                    Expanded(
-                      child: _buildSummaryCard(
-                        context,
-                        'Declined',
-                        userState.totalDeclinedEstimates.toString(),
-                        Icons.cancel,
-                        Colors.red,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Tab bar for estimate categories
-              TabBar(
-                tabs: [
-                  Tab(text: 'Pending (${userState.totalPendingEstimates})'),
-                  Tab(text: 'Accepted (${userState.totalAcceptedEstimates})'),
-                  Tab(text: 'Declined (${userState.totalDeclinedEstimates})'),
-                ],
-                labelColor: Theme.of(context).colorScheme.primary,
-                unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              
-              // Tab bar view
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _buildEstimatesList(context, userState.pendingEstimates, 'Pending'),
-                    _buildEstimatesList(context, userState.acceptedEstimates, 'Accepted'),
-                    _buildEstimatesList(context, userState.declinedEstimates, 'Declined'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+        return FutureBuilder<List<Estimate>>(
+          future: _loadEstimates(userState),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-  Widget _buildSummaryCard(BuildContext context, String title, String value, IconData icon, Color color) {
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+            if (snapshot.hasError) {
+              return Center(
         child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: ResponsiveUtils.getResponsiveIconSize(
-                context,
-                mobile: 24,
-                tablet: 28,
-                desktop: 32,
-              ),
-              color: color,
-            ),
-            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(
-                  context,
-                  mobile: 20,
-                  tablet: 24,
-                  desktop: 28,
-                ),
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(
-                  context,
-                  mobile: 12,
-                  tablet: 14,
-                  desktop: 16,
-                ),
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+                    Icon(Icons.error, size: 64, color: Colors.red),
+                    const SizedBox(height: 16),
+                    Text('Error loading estimates: ${snapshot.error}'),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => setState(() {}),
+                      child: const Text('Retry'),
+                    ),
+                  ],
       ),
     );
   }
 
-  Widget _buildEstimatesList(BuildContext context, List<Estimate> estimates, String status) {
+            final estimates = snapshot.data ?? [];
+
     if (estimates.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              status == 'Pending' ? Icons.schedule : status == 'Accepted' ? Icons.check_circle : Icons.cancel,
-              size: ResponsiveUtils.getResponsiveIconSize(
-                context,
-                mobile: 64,
-                tablet: 80,
-                desktop: 96,
-              ),
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+                    Icon(Icons.assessment_outlined, size: 64, color: Colors.grey),
+                    const SizedBox(height: 16),
             Text(
-              'No $status Estimates',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(
-                  context,
-                  mobile: 20,
-                  tablet: 24,
-                  desktop: 28,
-                ),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                      'No estimates submitted yet',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
             Text(
-              status == 'Pending' 
-                ? 'You don\'t have any pending estimates at the moment.'
-                : status == 'Accepted'
-                  ? 'No estimates have been accepted yet.'
-                  : 'No estimates have been declined.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(
-                  context,
-                  mobile: 16,
-                  tablet: 18,
-                  desktop: 20,
-                ),
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+                      'Your submitted estimates will appear here.',
+                      style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
           ],
@@ -506,582 +316,501 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
     }
 
     return ListView.builder(
-      padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+              padding: const EdgeInsets.all(16),
       itemCount: estimates.length,
       itemBuilder: (context, index) {
         final estimate = estimates[index];
-        return _buildEstimateCard(context, estimate, index);
+    return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _getStatusColor(estimate.status),
+                      child: Icon(
+                        _getStatusIcon(estimate.status),
+                      color: Colors.white,
+                      ),
+                    ),
+                    title: Text(
+                      'Estimate for Request',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                        Text('Cost: \$${estimate.cost.toStringAsFixed(2)}'),
+                        Text('Lead Time: ${estimate.leadTimeDisplay}'),
+                        Text('Status: ${estimate.status.name}'),
+                        Text('Submitted: ${_formatDate(estimate.submittedAt)}'),
+                      ],
+                    ),
+                    trailing: Text(
+                      estimate.status.name.toUpperCase(),
+                      style: TextStyle(
+                        color: _getStatusColor(estimate.status),
+                          fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
       },
     );
   }
 
-  Widget _buildEstimateCard(BuildContext context, Estimate estimate, int index) {
-    return Card(
-      margin: EdgeInsets.only(bottom: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-      child: Padding(
-        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with status
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Estimate #${index + 1}",
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 16,
-                            tablet: 18,
-                            desktop: 20,
-                          ),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        "Submitted: ${_formatDate(estimate.submittedAt)}",
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 12,
-                            tablet: 14,
-                            desktop: 16,
-                          ),
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 10, desktop: 12),
-                    vertical: ResponsiveUtils.getResponsivePadding(context, mobile: 4, tablet: 6, desktop: 8),
-                  ),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(estimate.status),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _getStatusText(estimate.status),
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: ResponsiveUtils.getResponsiveFontSize(
-                        context,
-                        mobile: 10,
-                        tablet: 12,
-                        desktop: 14,
-                      ),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            
-            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
-            
-            // Estimate details
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Cost:",
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 12,
-                            tablet: 14,
-                            desktop: 16,
-                          ),
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                      Text(
-                        "\$${estimate.cost.toStringAsFixed(2)}",
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 16,
-                            tablet: 18,
-                            desktop: 20,
-                          ),
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Lead Time:",
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 12,
-                            tablet: 14,
-                            desktop: 16,
-                          ),
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                      Text(
-                        "${estimate.leadTimeDays} days",
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 16,
-                            tablet: 18,
-                            desktop: 20,
-                          ),
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            
-            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
-            
-            // Description
-            Text(
-              "Repair Description:",
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(
-                  context,
-                  mobile: 12,
-                  tablet: 14,
-                  desktop: 16,
-                ),
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-            Text(
-              estimate.description,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontSize: ResponsiveUtils.getResponsiveFontSize(
-                  context,
-                  mobile: 14,
-                  tablet: 16,
-                  desktop: 18,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProfileTab(BuildContext context) {
+  Widget _buildChatTab(BuildContext context) {
     return Consumer<UserState>(
       builder: (context, userState, child) {
-        if (!userState.isRepairman) {
+        if (!userState.isServiceProfessional || userState.userId == null) {
           return Center(
             child: Text(
-              'Access denied. Please sign in as a repair professional.',
+              'Access denied. Please sign in as a service professional.',
               style: Theme.of(context).textTheme.bodyLarge,
             ),
           );
         }
 
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+        return StreamBuilder<List<ChatRoom>>(
+          stream: _chatService.getUserChatRoomsStream(userState.userId!),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (snapshot.hasError) {
+              return Center(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Profile header
-              Card(
-                child: Padding(
-                  padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: ResponsiveUtils.getResponsiveIconSize(
-                              context,
-                              mobile: 32,
-                              tablet: 40,
-                              desktop: 48,
-                            ),
-                            backgroundColor: Theme.of(context).colorScheme.primary,
-                            child: Icon(
-                              Icons.build,
-                              size: ResponsiveUtils.getResponsiveIconSize(
-                                context,
-                                mobile: 24,
-                                tablet: 30,
-                                desktop: 36,
-                              ),
-                              color: Theme.of(context).colorScheme.onPrimary,
-                            ),
-                          ),
-                          SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
-                          Expanded(
+                    Icon(Icons.error, size: 64, color: Colors.red),
+                    const SizedBox(height: 16),
+                    Text('Error loading chats: ${snapshot.error}'),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => setState(() {}),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final chatRooms = snapshot.data ?? [];
+
+            if (chatRooms.isEmpty) {
+              return Center(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                               children: [
+                    Icon(
+                      Icons.chat_bubble_outline,
+                      size: 64,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
                                 Text(
-                                  "Auto Repair Professional",
+                      'No active chats yet',
                                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                    fontSize: ResponsiveUtils.getResponsiveFontSize(
-                                      context,
-                                      mobile: 20,
-                                      tablet: 24,
-                                      desktop: 28,
-                                    ),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                                 Text(
-                                  userState.email ?? 'No email',
+                      'Chat conversations will appear here once customers start messaging you about accepted estimates.',
+                      textAlign: TextAlign.center,
                                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    fontSize: ResponsiveUtils.getResponsiveFontSize(
-                                      context,
-                                      mobile: 16,
-                                      tablet: 18,
-                                      desktop: 20,
-                                    ),
-                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: Colors.grey[500],
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
-              
-              // Test Firestore connectivity
-              Card(
-                child: Padding(
-                  padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-                  child: Column(
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: chatRooms.length,
+              itemBuilder: (context, index) {
+                final chatRoom = chatRooms[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundImage: chatRoom.customerPhotoUrl != null
+                          ? NetworkImage(chatRoom.customerPhotoUrl!)
+                          : null,
+                      child: chatRoom.customerPhotoUrl == null
+                          ? Icon(Icons.person)
+                          : null,
+                    ),
+                    title: Text(
+                      chatRoom.customerName,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        "Firestore Test",
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontSize: ResponsiveUtils.getResponsiveFontSize(
-                            context,
-                            mobile: 16,
-                            tablet: 18,
-                            desktop: 20,
-                          ),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
-                      ElevatedButton(
-                        onPressed: () async {
-                          try {
-                            final firestoreService = context.read<FirebaseFirestoreService>();
-                            final isConnected = await firestoreService.testFirestoreConnection();
-                            
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(isConnected 
-                                    ? 'Firestore connection test successful!' 
-                                    : 'Firestore connection test failed!'),
-                                  backgroundColor: isConnected 
-                                    ? Theme.of(context).colorScheme.primary 
-                                    : Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Firestore test error: ${e.toString()}'),
-                                  backgroundColor: Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        child: Text('Test Firestore Connection'),
-                      ),
-                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                      ElevatedButton(
-                        onPressed: () async {
-                          try {
-                            final firestoreService = context.read<FirebaseFirestoreService>();
-                            await firestoreService.testFirestoreWritePermissions();
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Firestore write permissions test completed'),
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Firestore write permissions test failed: $e'),
-                                  backgroundColor: Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        child: Text('Test Write Permissions'),
-                      ),
-                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                      ElevatedButton(
-                        onPressed: () async {
-                          try {
-                            final firestoreService = context.read<FirebaseFirestoreService>();
-                            
-                            // Create a test estimate
-                            final testEstimateId = await firestoreService.createEstimate(
-                              reportId: 'test_report_${DateTime.now().millisecondsSinceEpoch}',
-                              ownerId: 'test_owner',
-                              professionalId: userState.userId ?? 'test_professional',
-                              professionalEmail: userState.email ?? 'test@example.com',
-                              professionalBio: 'Test professional',
-                              cost: 100.0,
-                              leadTimeDays: 3,
-                              description: 'This is a test estimate to verify Firestore connectivity',
-                            );
-                            
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Test estimate created successfully! ID: $testEstimateId'),
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Test estimate creation failed: ${e.toString()}'),
-                                  backgroundColor: Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        child: Text('Create Test Estimate'),
-                      ),
-                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                      ElevatedButton(
-                        onPressed: () async {
-                          try {
-                            final firestoreService = context.read<FirebaseFirestoreService>();
-                            
-                            // Create a test damage report
-                            final testReportId = await firestoreService.createDamageReport(
-                              ownerId: 'test_owner',
-                              vehicleMake: 'Toyota',
-                              vehicleModel: 'Camry',
-                              vehicleYear: 2020,
-                              damageDescription: 'Test damage report for demonstration',
-                              estimatedCost: 5000.0,
-                              additionalNotes: 'This is a test damage report',
-                            );
-                            
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Test damage report created successfully! ID: $testReportId'),
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Test damage report creation failed: ${e.toString()}'),
-                                  backgroundColor: Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        child: Text('Create Test Damage Report'),
-                      ),
-                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
-                      ElevatedButton(
-                        onPressed: () async {
-                          try {
-                            final firestoreService = context.read<FirebaseFirestoreService>();
-                            
-                            // Load pending damage reports
-                            final reports = await firestoreService.getAllPendingDamageReports();
-                            
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Loaded ${reports.length} pending damage reports'),
-                                  backgroundColor: Theme.of(context).colorScheme.primary,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Failed to load pending damage reports: ${e.toString()}'),
-                                  backgroundColor: Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        child: Text('Load Pending Damage Reports'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
-              
-              // Bio section
-              Card(
-                child: Padding(
-                  padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.person,
-                            color: Theme.of(context).colorScheme.primary,
-                            size: ResponsiveUtils.getResponsiveIconSize(
-                              context,
-                              mobile: 20,
-                              tablet: 24,
-                              desktop: 28,
-                            ),
-                          ),
-                          SizedBox(width: ResponsiveUtils.getResponsivePadding(context, mobile: 8, tablet: 12, desktop: 16)),
+                        if (chatRoom.lastMessage != null)
                           Text(
-                            "Professional Bio",
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontSize: ResponsiveUtils.getResponsiveFontSize(
-                                context,
-                                mobile: 18,
-                                tablet: 20,
-                                desktop: 22,
-                              ),
-                              fontWeight: FontWeight.bold,
+                            chatRoom.lastMessage!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        const SizedBox(height: 4),
+                          Text(
+                          _formatLastMessageTime(chatRoom.lastMessageAt),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
-                      
-                      if (userState.bio != null && userState.bio!.isNotEmpty) ...[
-                        Text(
-                          userState.bio!,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontSize: ResponsiveUtils.getResponsiveFontSize(
+                    trailing: Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: () {
+                      Navigator.push(
                               context,
-                              mobile: 16,
-                              tablet: 18,
-                              desktop: 20,
-                            ),
+                        MaterialPageRoute(
+                          builder: (context) => ChatScreen(
+                            chatRoomId: chatRoom.id,
+                            otherUserName: chatRoom.customerName,
+                            otherUserPhotoUrl: chatRoom.customerPhotoUrl,
                           ),
                         ),
-                        SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
-                      ] else ...[
-                        Text(
-                          "No bio added yet. Add a professional bio to help vehicle owners learn about your expertise.",
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontSize: ResponsiveUtils.getResponsiveFontSize(
-                              context,
-                              mobile: 16,
-                              tablet: 18,
-                              desktop: 20,
-                            ),
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                        SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
-                      ],
-                      
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () => _editBio(context, userState),
-                          icon: Icon(Icons.edit),
-                          label: Text(
-                            userState.bio != null && userState.bio!.isNotEmpty
-                                ? "Edit Bio"
-                                : "Add Bio",
-                            style: TextStyle(
-                              fontSize: ResponsiveUtils.getResponsiveFontSize(
-                                context,
-                                mobile: 16,
-                                tablet: 18,
-                                desktop: 20,
-                              ),
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.primary,
-                            foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                            padding: EdgeInsets.symmetric(
-                              vertical: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                ),
-              ),
-            ],
-          ),
+                );
+              },
+            );
+          },
         );
       },
     );
   }
+
+  Widget _buildMyBookingsTab(BuildContext context) {
+    return const MyBookingsScreen();
+  }
+
+  Widget _buildProfileTab(BuildContext context) {
+    return Consumer<UserState>(
+      builder: (context, userState, child) {
+        if (!userState.isServiceProfessional || userState.userId == null) {
+          return Center(
+            child: Text(
+              'Access denied. Please sign in as a service professional.',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          );
+        }
+
+        // Return the full profile screen directly
+        return ServiceProfessionalProfileScreen();
+      },
+    );
+  }
+
+  Future<List<JobRequest>> _loadServiceRequests(UserState userState) async {
+    try {
+      if (userState.userId == null || userState.serviceCategoryIds.isEmpty) {
+        print('🔍 [Dashboard] Cannot load service requests - userId: ${userState.userId}, categories: ${userState.serviceCategoryIds}');
+        return [];
+      }
+
+      print('🔍 [Dashboard] Loading service requests for categories: ${userState.serviceCategoryIds}');
+      final firestoreService = context.read<FirebaseFirestoreService>();
+      final requestsData = await firestoreService.getJobRequestsByCategories(userState.serviceCategoryIds);
+      final requests = requestsData.map((data) => JobRequest.fromMap(data, data['id'])).toList();
+      
+      // Load estimates to check which requests already have estimates
+      final estimates = await _loadEstimates(userState);
+      _cachedEstimates = estimates; // Cache the estimates
+      
+      // Filter out dismissed requests and requests that already have estimates
+      final filteredRequests = requests.where((request) {
+        // Skip if dismissed
+        if (_dismissedRequestIds.contains(request.id)) {
+          print('🔍 [Dashboard] Filtering out dismissed request: ${request.id}');
+          return false;
+        }
+        
+        // Skip if already has an estimate from this professional
+        final hasEstimate = estimates.any((estimate) {
+          final matchesRequest = estimate.jobRequestId == request.id || estimate.reportId == request.id;
+          final matchesProfessional = estimate.repairProfessionalId == userState.userId;
+          print('🔍 [Dashboard] Checking estimate: jobRequestId=${estimate.jobRequestId}, reportId=${estimate.reportId}, requestId=${request.id}, professionalId=${estimate.repairProfessionalId}, matchesRequest=$matchesRequest, matchesProfessional=$matchesProfessional');
+          return matchesRequest && matchesProfessional;
+        });
+        
+        if (hasEstimate) {
+          print('🔍 [Dashboard] Filtering out request with existing estimate: ${request.id}');
+        }
+        
+        return !hasEstimate;
+      }).toList();
+      
+      print('🔍 [Dashboard] Found ${requests.length} service requests, ${filteredRequests.length} after filtering');
+      print('🔍 [Dashboard] Dismissed requests: $_dismissedRequestIds');
+      print('🔍 [Dashboard] Estimates found: ${estimates.length}');
+      for (final estimate in estimates) {
+        print('🔍 [Dashboard] Estimate for request: jobRequestId=${estimate.jobRequestId}, reportId=${estimate.reportId}, professional: ${estimate.repairProfessionalId}');
+      }
+      
+      return filteredRequests;
+    } catch (e) {
+      print('❌ [Dashboard] Error loading service requests: $e');
+      return [];
+    }
+  }
+
+  Future<List<Estimate>> _loadEstimates(UserState userState) async {
+    try {
+      if (userState.userId == null) {
+        print('🔍 [Dashboard] Cannot load estimates - userId is null');
+        return [];
+      }
+
+      print('🔍 [Dashboard] Loading estimates for professional: ${userState.userId}');
+      final firestoreService = context.read<FirebaseFirestoreService>();
+      final estimatesData = await firestoreService.getAllEstimatesForProfessional(userState.userId!);
+      
+      final estimates = <Estimate>[];
+      for (final estimateData in estimatesData) {
+        final estimate = Estimate(
+          id: estimateData['id'] as String,
+          reportId: estimateData['reportId'] as String? ?? '',
+          jobRequestId: estimateData['jobRequestId'] as String? ?? estimateData['requestId'] as String?,
+          ownerId: estimateData['customerId'] as String? ?? estimateData['ownerId'] as String? ?? '',
+          repairProfessionalId: estimateData['professionalId'] as String,
+          repairProfessionalEmail: estimateData['professionalEmail'] as String,
+          repairProfessionalBio: estimateData['professionalBio'] as String?,
+          cost: (estimateData['cost'] as num).toDouble(),
+          leadTimeDays: estimateData['leadTimeDays'] as int,
+          description: estimateData['description'] as String,
+          imageUrls: List<String>.from(estimateData['imageUrls'] ?? []),
+          status: _parseEstimateStatus(estimateData['status'] as String),
+          submittedAt: (estimateData['submittedAt'] as Timestamp).toDate(),
+          updatedAt: estimateData['updatedAt'] != null 
+              ? (estimateData['updatedAt'] as Timestamp).toDate() 
+              : null,
+          acceptedAt: estimateData['acceptedAt'] != null 
+              ? (estimateData['acceptedAt'] as Timestamp).toDate() 
+              : null,
+          declinedAt: estimateData['declinedAt'] != null 
+              ? (estimateData['declinedAt'] as Timestamp).toDate() 
+              : null,
+        );
+        estimates.add(estimate);
+      }
+      
+      print('🔍 [Dashboard] Found ${estimates.length} estimates');
+      return estimates;
+    } catch (e) {
+      print('❌ [Dashboard] Error loading estimates: $e');
+      return [];
+    }
+  }
+
+  EstimateStatus _parseEstimateStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'accepted':
+        return EstimateStatus.accepted;
+      case 'declined':
+        return EstimateStatus.declined;
+      case 'pending':
+      default:
+        return EstimateStatus.pending;
+    }
+  }
+
+  void _showEstimateDialog(BuildContext context, JobRequest request) {
+    final TextEditingController costController = TextEditingController();
+    final TextEditingController descriptionController = TextEditingController();
+    
+    // Time picker state
+    int selectedDays = 0;
+    int selectedHours = 0;
+    int selectedMinutes = 0;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Submit Estimate for ${request.title}'),
+          content: SizedBox(
+            width: 400,
+            height: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Submit an estimate for: ${request.title}'),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: costController,
+                    decoration: const InputDecoration(
+                      labelText: 'Estimated Cost (\$)',
+                      hintText: 'Enter your estimate',
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Lead Time Section
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Lead Time',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  // Time Picker Widget
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: TimePickerWidget(
+                      initialDays: selectedDays,
+                      initialHours: selectedHours,
+                      initialMinutes: selectedMinutes,
+                      onTimeChanged: (days, hours, minutes) {
+                        setState(() {
+                          selectedDays = days;
+                          selectedHours = hours;
+                          selectedMinutes = minutes;
+                        });
+                      },
+                      height: 200,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(
+                      labelText: 'Service Description',
+                      hintText: 'Describe the service work in detail',
+                    ),
+                    maxLines: 3,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+              final userState = context.read<UserState>();
+              final firestoreService = context.read<FirebaseFirestoreService>();
+
+              if (userState.userId == null || userState.email == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('User not authenticated.')),
+                );
+                return;
+              }
+
+              final cost = double.tryParse(costController.text);
+              final description = descriptionController.text.trim();
+              
+              // Convert time picker values to total minutes
+              final totalMinutes = TimeHelper.toTotalMinutes(selectedDays, selectedHours, selectedMinutes);
+
+              if (cost == null || description.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please fill all estimate fields correctly.')),
+                );
+                return;
+              }
+
+              if (totalMinutes == 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please select a lead time.')),
+                  );
+                  return;
+                }
+
+                try {
+                await firestoreService.createEstimateForServiceRequest(
+                  jobRequestId: request.id,
+                  professionalId: userState.userId!,
+                  professionalEmail: userState.email ?? '',
+                  professionalBio: userState.bio ?? '',
+                  cost: cost,
+                  leadTimeDays: totalMinutes, // Store as total minutes
+                  description: description,
+                );
+
+                // Update the job request status to 'inProgress'
+                // await firestoreService.updateJobRequestStatus(request.id, JobStatus.inProgress);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Estimate submitted successfully!')),
+                  );
+                  Navigator.pop(context);
+                  
+                  // Clear cached estimates to force reload
+                  _cachedEstimates.clear();
+                  
+                  // Refresh the list
+                  setState(() {});
+                  }
+                } catch (e) {
+                print('❌ Error submitting estimate: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to submit estimate: $e')),
+                    );
+                  }
+                }
+              },
+            child: const Text('Submit Estimate'),
+          ),
+        ],
+      ),
+    ));
+  }
+
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+                final authService = context.read<FirebaseAuthService>();
+                await authService.signOut();
+                if (mounted) {
+                Navigator.pushReplacementNamed(context, '/login');
+              }
+            },
+            child: const Text('Logout'),
+              ),
+            ],
+                    ),
+                  );
+                }
 
   Color _getStatusColor(EstimateStatus status) {
     switch (status) {
@@ -1094,123 +823,49 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
     }
   }
 
-  String _getStatusText(EstimateStatus status) {
+  IconData _getStatusIcon(EstimateStatus status) {
     switch (status) {
       case EstimateStatus.pending:
-        return "Pending";
+        return Icons.pending;
       case EstimateStatus.accepted:
-        return "Accepted";
+        return Icons.check;
       case EstimateStatus.declined:
-        return "Declined";
+        return Icons.close;
     }
   }
 
-  Future<void> _editBio(BuildContext context, UserState userState) async {
-    final TextEditingController bioController = TextEditingController(text: userState.bio ?? '');
-    final int maxLength = 500;
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
+  }
 
-    return showDialog(
+  void _handleDismissRequest(BuildContext context, JobRequest request) {
+    showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(
-            'Edit Professional Bio',
-            style: TextStyle(
-              fontSize: ResponsiveUtils.getResponsiveFontSize(
-                context,
-                mobile: 18,
-                tablet: 20,
-                desktop: 22,
-              ),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setState) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Tell vehicle owners about your experience, certifications, and specialties.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontSize: ResponsiveUtils.getResponsiveFontSize(
-                        context,
-                        mobile: 14,
-                        tablet: 16,
-                        desktop: 18,
-                      ),
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
-                  TextField(
-                    controller: bioController,
-                    maxLines: 4,
-                    maxLength: maxLength,
-                    decoration: InputDecoration(
-                      hintText: 'Enter your professional bio...',
-                      border: OutlineInputBorder(),
-                      counterText: '${bioController.text.length}/$maxLength characters',
-                      counterStyle: TextStyle(
-                        color: bioController.text.length > maxLength * 0.9
-                            ? Theme.of(context).colorScheme.error
-                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    onChanged: (value) {
-                      setState(() {});
-                    },
-                  ),
-                ],
-              );
-            },
-          ),
+          title: const Text('Dismiss Request'),
+          content: Text('Are you sure you want to dismiss "${request.title}"? This action cannot be undone.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: Text('Cancel'),
+              child: const Text('Cancel'),
             ),
-            ElevatedButton(
-              onPressed: () async {
-                final bio = bioController.text.trim();
-                final navigator = Navigator.of(context);
-
-                if (bio.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Bio cannot be empty'),
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                  return;
-                }
-
-                try {
-                  await userState.updateBio(bio);
-                  if (mounted) {
-                    navigator.pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Bio updated successfully!'),
-                        backgroundColor: Theme.of(context).colorScheme.primary,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to update bio: ${e.toString()}'),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                }
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                setState(() {
+                  _dismissedRequestIds.add(request.id);
+                  print('🔍 [Dashboard] Added to dismissed requests: ${request.id}, total dismissed: ${_dismissedRequestIds.length}');
+                });
+                _saveDismissedRequests();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Request "${request.title}" dismissed'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
               },
-              child: Text('Save'),
+              child: const Text('Dismiss'),
             ),
           ],
         );
@@ -1218,59 +873,53 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
     );
   }
 
-  String _formatDate(DateTime date) {
-    return "${date.day}/${date.month}/${date.year} at ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+  Future<void> _loadDismissedRequests() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userState = Provider.of<UserState>(context, listen: false);
+      final userId = userState.userId;
+      
+      if (userId != null) {
+        final dismissedKey = 'dismissed_requests_$userId';
+        final dismissedList = prefs.getStringList(dismissedKey) ?? [];
+        _dismissedRequestIds = dismissedList.toSet();
+        print('🔍 [Dashboard] Loaded ${_dismissedRequestIds.length} dismissed requests for user $userId');
+      }
+    } catch (e) {
+      print('❌ [Dashboard] Error loading dismissed requests: $e');
+    }
   }
 
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text("Logout"),
-        content: Text("Are you sure you want to logout?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                final authService = context.read<FirebaseAuthService>();
-                final userState = context.read<UserState>();
-                final navigator = Navigator.of(context);
-                
-                await authService.signOut();
-                userState.clearUserState();
-                
-                navigator.pop(); // Close dialog first
-                if (mounted) {
-                  navigator.pushReplacementNamed('/login');
-                }
-              } catch (e) {
-                final navigator = Navigator.of(context);
-                final scaffoldMessenger = ScaffoldMessenger.of(context);
-                
-                navigator.pop(); // Close dialog on error too
-                if (mounted) {
-                  scaffoldMessenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Logout failed: ${e.toString()}'),
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            child: Text("Logout"),
-          ),
-        ],
-      ),
-    );
+  Future<void> _saveDismissedRequests() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userState = Provider.of<UserState>(context, listen: false);
+      final userId = userState.userId;
+      
+      if (userId != null) {
+        final dismissedKey = 'dismissed_requests_$userId';
+        await prefs.setStringList(dismissedKey, _dismissedRequestIds.toList());
+        print('🔍 [Dashboard] Saved ${_dismissedRequestIds.length} dismissed requests for user $userId');
+      }
+    } catch (e) {
+      print('❌ [Dashboard] Error saving dismissed requests: $e');
+    }
+  }
+
+  String _formatLastMessageTime(DateTime? lastMessageAt) {
+    if (lastMessageAt == null) return 'No messages';
+    
+    final now = DateTime.now();
+    final difference = now.difference(lastMessageAt);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
+    }
   }
 }

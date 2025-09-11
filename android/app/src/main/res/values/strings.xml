@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">vehicle_damage_app</string>
+    <!-- Replace this with your actual Google Maps API Key -->
+    <!-- Google Maps API key is now loaded from local.properties for security -->
+</resources>

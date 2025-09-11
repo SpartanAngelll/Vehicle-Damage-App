@@ -1,12 +1,16 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart';
 import '../services/local_storage_service.dart';
-import '../services/services.dart';
+import '../services/firebase_firestore_service.dart';
 import 'damage_report.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 enum UserRole {
   owner,
   repairman,
+  serviceProfessional, // New role for multi-category support
 }
 
 class UserState extends ChangeNotifier {
@@ -19,8 +23,29 @@ class UserState extends ChangeNotifier {
   String? _bio;
   bool _isLoading = false;
   String? _errorMessage;
+  User? _currentUser; // Firebase Auth user
+  bool _disposed = false;
   
-  // For repair professionals: track submitted estimates
+  // User profile properties
+  String? _fullName;
+  String? _profilePhotoUrl;
+  
+  // For service professionals: track categories and specializations
+  List<String> _serviceCategoryIds = [];
+  List<String> _specializations = [];
+  String? _businessName;
+  String? _businessAddress;
+  String? _businessPhone;
+  String? _website;
+  List<String> _certifications = [];
+  int _yearsOfExperience = 0;
+  double _averageRating = 0.0;
+  int _totalReviews = 0;
+  bool _isVerified = false;
+  bool _isAvailable = true;
+  List<String> _serviceAreas = [];
+  
+  // For repair professionals: track submitted estimates (backward compatibility)
   final List<Estimate> _submittedEstimates = [];
   
   // For vehicle owners: track received estimates
@@ -36,10 +61,31 @@ class UserState extends ChangeNotifier {
   String? get bio => _bio;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  User? get currentUser => _currentUser; // Firebase Auth user
   bool get isOwner => _role == UserRole.owner;
   bool get isRepairman => _role == UserRole.repairman;
+  bool get isServiceProfessional => _role == UserRole.serviceProfessional;
   
-  // Estimate tracking getters
+  // User profile getters
+  String? get fullName => _fullName;
+  String? get profilePhotoUrl => _profilePhotoUrl;
+  
+  // Service professional specific getters
+  List<String> get serviceCategoryIds => List.unmodifiable(_serviceCategoryIds);
+  List<String> get specializations => List.unmodifiable(_specializations);
+  String? get businessName => _businessName;
+  String? get businessAddress => _businessAddress;
+  String? get businessPhone => _businessPhone;
+  String? get website => _website;
+  List<String> get certifications => List.unmodifiable(_certifications);
+  int get yearsOfExperience => _yearsOfExperience;
+  double get averageRating => _averageRating;
+  int get totalReviews => _totalReviews;
+  bool get isVerified => _isVerified;
+  bool get isAvailable => _isAvailable;
+  List<String> get serviceAreas => List.unmodifiable(_serviceAreas);
+  
+  // Estimate tracking getters (backward compatibility)
   List<Estimate> get submittedEstimates => List.unmodifiable(_submittedEstimates);
   List<Estimate> get pendingEstimates => _submittedEstimates.where((e) => e.status == EstimateStatus.pending).toList();
   List<Estimate> get acceptedEstimates => _submittedEstimates.where((e) => e.status == EstimateStatus.accepted).toList();
@@ -63,6 +109,12 @@ class UserState extends ChangeNotifier {
     _loadUserData();
   }
 
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   // Initialize user state from Firebase Auth
   void initializeFromFirebase({
     required String userId,
@@ -70,22 +122,53 @@ class UserState extends ChangeNotifier {
     required String userType,
     String? phoneNumber,
     String? bio,
+    User? currentUser,
   }) {
     debugPrint('UserState: Initializing from Firebase - userId: $userId, email: $email, userType: $userType');
     
     _userId = userId;
     _email = email;
     _phoneNumber = phoneNumber;
-    _role = userType == 'owner' ? UserRole.owner : UserRole.repairman;
+    _currentUser = currentUser;
+    
+    // Map user types to roles with backward compatibility
+    debugPrint('UserState: Mapping userType "$userType" to role');
+    switch (userType) {
+      case 'owner':
+        _role = UserRole.owner;
+        break;
+      case 'repairman':
+      case 'mechanic':
+        _role = UserRole.repairman; // Backward compatibility
+        break;
+      case 'serviceProfessional':
+      case 'service_professional':
+        _role = UserRole.serviceProfessional;
+        break;
+      default:
+        debugPrint('UserState: Unknown userType "$userType", defaulting to repairman');
+        _role = UserRole.repairman; // Default for backward compatibility
+    }
+    
     _bio = bio;
     _isAuthenticated = true;
     _lastLoginTime = DateTime.now();
     
     debugPrint('UserState: Role set to ${_role.toString()}, isRepairman: ${_role == UserRole.repairman}');
     debugPrint('UserState: isOwner: ${_role == UserRole.owner}, isRepairman: ${_role == UserRole.repairman}');
+    debugPrint('UserState: isServiceProfessional: ${_role == UserRole.serviceProfessional}');
     
     _saveUserData();
-    notifyListeners();
+    
+    // Load service professional profile if applicable
+    if (_role == UserRole.serviceProfessional) {
+      _loadServiceProfessionalProfile();
+    }
+    
+    // Use post-frame callback to avoid setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
   }
 
   // Clear user state on sign out
@@ -97,11 +180,33 @@ class UserState extends ChangeNotifier {
     _userId = null;
     _lastLoginTime = null;
     _bio = null;
+    _fullName = null;
+    _profilePhotoUrl = null;
+    _currentUser = null;
+    
+    // Clear service professional fields
+    _serviceCategoryIds.clear();
+    _specializations.clear();
+    _businessName = null;
+    _businessAddress = null;
+    _businessPhone = null;
+    _website = null;
+    _certifications.clear();
+    _yearsOfExperience = 0;
+    _averageRating = 0.0;
+    _totalReviews = 0;
+    _isVerified = false;
+    _isAvailable = true;
+    _serviceAreas.clear();
+    
+    // Clear estimates
     _submittedEstimates.clear();
     _receivedEstimates.clear();
     
     LocalStorageService.clearUserData();
-    notifyListeners();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (hasListeners) notifyListeners();
+    });
   }
 
   // Sign out method for compatibility with existing code
@@ -135,12 +240,92 @@ class UserState extends ChangeNotifier {
 
       await _saveUserData();
 
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     } catch (e) {
       _setError('Profile update failed: ${e.toString()}');
     } finally {
       _setLoading(false);
     }
+  }
+
+  // Service professional profile update methods
+  Future<void> updateServiceProfessionalProfile({
+    List<String>? categoryIds,
+    List<String>? specializations,
+    String? businessName,
+    String? businessAddress,
+    String? businessPhone,
+    String? website,
+    List<String>? certifications,
+    int? yearsOfExperience,
+    List<String>? serviceAreas,
+    bool? isAvailable,
+  }) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      if (categoryIds != null) _serviceCategoryIds = categoryIds;
+      if (specializations != null) _specializations = specializations;
+      if (businessName != null) _businessName = businessName;
+      if (businessAddress != null) _businessAddress = businessAddress;
+      if (businessPhone != null) _businessPhone = businessPhone;
+      if (website != null) _website = website;
+      if (certifications != null) _certifications = certifications;
+      if (yearsOfExperience != null) _yearsOfExperience = yearsOfExperience;
+      if (serviceAreas != null) _serviceAreas = serviceAreas;
+      if (isAvailable != null) _isAvailable = isAvailable;
+
+      await _saveUserData();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
+    } catch (e) {
+      _setError('Service professional profile update failed: ${e.toString()}');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Update service categories
+  Future<void> updateServiceCategories(List<String> categoryIds) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      if (categoryIds.isEmpty) {
+        throw Exception('At least one service category must be selected');
+      }
+
+      _serviceCategoryIds = categoryIds;
+      await _saveUserData();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
+    } catch (e) {
+      _setError('Service categories update failed: ${e.toString()}');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Check if user can service a specific category
+  bool canServiceCategory(String categoryId) {
+    return _serviceCategoryIds.contains(categoryId);
+  }
+
+  // Refresh service professional profile from Firebase
+  Future<void> refreshServiceProfessionalProfile() async {
+    if (_role == UserRole.serviceProfessional) {
+      await _loadServiceProfessionalProfile();
+    }
+  }
+
+  // Check if user can service any of the given categories
+  bool canServiceAnyCategory(List<String> categoryIds) {
+    return _serviceCategoryIds.any((id) => categoryIds.contains(id));
   }
 
   Future<void> changeRole(UserRole newRole) async {
@@ -151,11 +336,59 @@ class UserState extends ChangeNotifier {
       _role = newRole;
       await _saveUserData();
 
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     } catch (e) {
       _setError('Role change failed: ${e.toString()}');
     } finally {
       _setLoading(false);
+    }
+  }
+
+  // Force update user role from Firebase
+  Future<void> forceUpdateRoleFromFirebase() async {
+    if (_userId == null) {
+      debugPrint('UserState: Cannot update role - userId is null');
+      return;
+    }
+    
+    try {
+      debugPrint('UserState: Force updating role from Firebase for user: $_userId');
+      final firestoreService = FirebaseFirestoreService();
+      final userProfile = await firestoreService.getUserProfile(_userId!);
+      
+      if (userProfile != null) {
+        final userType = userProfile['role'] ?? userProfile['userType'] ?? 'owner';
+        debugPrint('UserState: Current role in Firebase: $userType');
+        
+        // Update the role based on Firebase data
+        switch (userType) {
+          case 'owner':
+            _role = UserRole.owner;
+            break;
+          case 'repairman':
+          case 'mechanic':
+            _role = UserRole.repairman;
+            break;
+          case 'serviceProfessional':
+          case 'service_professional':
+            _role = UserRole.serviceProfessional;
+            break;
+          default:
+            debugPrint('UserState: Unknown userType "$userType", keeping current role');
+        }
+        
+        debugPrint('UserState: Role updated to: ${_role.toString()}');
+        debugPrint('UserState: isServiceProfessional: $isServiceProfessional');
+        
+        await _saveUserData();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (hasListeners) notifyListeners();
+        });
+      }
+    } catch (e) {
+      debugPrint('UserState: Failed to force update role: $e');
     }
   }
 
@@ -173,7 +406,9 @@ class UserState extends ChangeNotifier {
 
       _bio = newBio.trim();
       await _saveUserData();
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     } catch (e) {
       _setError('Bio update failed: ${e.toString()}');
     } finally {
@@ -186,7 +421,9 @@ class UserState extends ChangeNotifier {
     if (_role == UserRole.repairman) {
       _submittedEstimates.add(estimate);
       _saveUserData();
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     }
   }
 
@@ -197,7 +434,9 @@ class UserState extends ChangeNotifier {
         final updatedEstimate = _submittedEstimates[index].copyWith(status: newStatus);
         _submittedEstimates[index] = updatedEstimate;
         _saveUserData();
-        notifyListeners();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (hasListeners) notifyListeners();
+        });
       }
     }
   }
@@ -206,7 +445,9 @@ class UserState extends ChangeNotifier {
     if (_role == UserRole.repairman) {
       _submittedEstimates.removeWhere((e) => e.id == estimateId);
       _saveUserData();
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     }
   }
 
@@ -237,8 +478,9 @@ class UserState extends ChangeNotifier {
       for (final estimateData in estimatesData) {
         final estimate = Estimate(
           id: estimateData['id'] as String,
-          reportId: estimateData['reportId'] as String,
-          ownerId: estimateData['ownerId'] as String,
+          reportId: estimateData['reportId'] as String? ?? '',
+          jobRequestId: estimateData['jobRequestId'] as String? ?? estimateData['requestId'] as String?,
+          ownerId: estimateData['customerId'] as String? ?? estimateData['ownerId'] as String? ?? '',
           repairProfessionalId: estimateData['professionalId'] as String,
           repairProfessionalEmail: estimateData['professionalEmail'] as String,
           repairProfessionalBio: estimateData['professionalBio'] as String?,
@@ -264,7 +506,9 @@ class UserState extends ChangeNotifier {
       _submittedEstimates.clear();
       _submittedEstimates.addAll(estimates);
       
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     } catch (e) {
       _setError('Failed to load estimates: ${e.toString()}');
     } finally {
@@ -288,8 +532,9 @@ class UserState extends ChangeNotifier {
       for (final estimateData in estimatesData) {
         final estimate = Estimate(
           id: estimateData['id'] as String,
-          reportId: estimateData['reportId'] as String,
-          ownerId: estimateData['ownerId'] as String,
+          reportId: estimateData['reportId'] as String? ?? '',
+          jobRequestId: estimateData['jobRequestId'] as String? ?? estimateData['requestId'] as String?,
+          ownerId: estimateData['customerId'] as String? ?? estimateData['ownerId'] as String? ?? '',
           repairProfessionalId: estimateData['professionalId'] as String,
           repairProfessionalEmail: estimateData['professionalEmail'] as String,
           repairProfessionalBio: estimateData['professionalBio'] as String?,
@@ -315,7 +560,9 @@ class UserState extends ChangeNotifier {
       _receivedEstimates.clear();
       _receivedEstimates.addAll(estimates);
       
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
     } catch (e) {
       _setError('Failed to load estimates: ${e.toString()}');
     } finally {
@@ -340,11 +587,13 @@ class UserState extends ChangeNotifier {
       
       final firestoreService = FirebaseFirestoreService();
       await firestoreService.updateEstimateStatus(
-        estimateId: estimateId,
-        status: status.name,
-        acceptedAt: acceptedAt,
-        declinedAt: declinedAt,
-        cost: acceptedCost ?? declinedCost,
+        estimateId,
+        status.name,
+        additionalData: {
+          'acceptedAt': acceptedAt,
+          'declinedAt': declinedAt,
+          'cost': acceptedCost ?? declinedCost,
+        },
       );
       
       // Update local state
@@ -356,7 +605,9 @@ class UserState extends ChangeNotifier {
           declinedAt: declinedAt,
         );
         _receivedEstimates[index] = updatedEstimate;
-        notifyListeners();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (hasListeners) notifyListeners();
+        });
       }
     } catch (e) {
       _setError('Failed to update estimate status: ${e.toString()}');
@@ -380,18 +631,30 @@ class UserState extends ChangeNotifier {
   }
   
   void _setLoading(bool loading) {
-    _isLoading = loading;
-    notifyListeners();
+    if (!_disposed) {
+      _isLoading = loading;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners && !_disposed) notifyListeners();
+      });
+    }
   }
 
   void _setError(String error) {
-    _errorMessage = error;
-    notifyListeners();
+    if (!_disposed) {
+      _errorMessage = error;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners && !_disposed) notifyListeners();
+      });
+    }
   }
 
   void _clearError() {
-    _errorMessage = null;
-    notifyListeners();
+    if (!_disposed) {
+      _errorMessage = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners && !_disposed) notifyListeners();
+      });
+    }
   }
 
   Future<void> _saveUserData() async {
@@ -430,10 +693,68 @@ class UserState extends ChangeNotifier {
         _bio = bio;
         _isAuthenticated = isAuthenticated ?? false;
         _lastLoginTime = lastLoginTime;
-        notifyListeners();
+        
+        // Load service professional profile if applicable
+        if (_role == UserRole.serviceProfessional) {
+          _loadServiceProfessionalProfile();
+        }
+        
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (hasListeners) notifyListeners();
+        });
       }
     } catch (e) {
       debugPrint('Failed to load user data: $e');
+    }
+  }
+
+  // Load service professional profile from Firebase
+  Future<void> _loadServiceProfessionalProfile() async {
+    if (_userId == null) {
+      debugPrint('UserState: Cannot load service professional profile - userId is null');
+      return;
+    }
+    
+    try {
+      debugPrint('UserState: Loading service professional profile for user: $_userId');
+      final firestoreService = FirebaseFirestoreService();
+      final professional = await firestoreService.getServiceProfessional(_userId!);
+      
+      if (professional != null) {
+        debugPrint('UserState: Service professional profile loaded successfully');
+        debugPrint('UserState: Professional name: ${professional.fullName}');
+        debugPrint('UserState: Professional categories: ${professional.categoryIds}');
+        debugPrint('UserState: Professional role: service_professional');
+        
+        _serviceCategoryIds = professional.categoryIds;
+        _specializations = professional.specializations;
+        _businessName = professional.businessName;
+        _businessAddress = professional.businessAddress;
+        _businessPhone = professional.businessPhone;
+        _website = professional.website;
+        _certifications = professional.certifications;
+        _yearsOfExperience = professional.yearsOfExperience;
+        _averageRating = professional.averageRating;
+        _totalReviews = professional.totalReviews;
+        _isVerified = professional.isVerified;
+        _isAvailable = professional.isAvailable;
+        _serviceAreas = professional.serviceAreas;
+        
+        // Load user profile properties
+        _fullName = professional.fullName;
+        _profilePhotoUrl = professional.profilePhotoUrl;
+        
+        debugPrint('UserState: Categories loaded into UserState: $_serviceCategoryIds');
+        debugPrint('UserState: Service category IDs getter returns: $serviceCategoryIds');
+        
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (hasListeners) notifyListeners();
+        });
+      } else {
+        debugPrint('UserState: No service professional profile found for user: $_userId');
+      }
+    } catch (e) {
+      debugPrint('UserState: Failed to load service professional profile: $e');
     }
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import '../services/firebase_firestore_service.dart';
 import '../widgets/image_upload_widget.dart';
 
 class DamageReportForm extends StatefulWidget {

@@ -1,0 +1,17 @@
+# Template for local.properties
+# Copy this file to local.properties and add your actual API keys
+
+# Google Maps API Key
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+
+# OpenAI API Key
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Android SDK path (usually auto-detected)
+sdk.dir=C:\\Users\\YourUsername\\AppData\\Local\\Android\\sdk
+
+# Flutter configuration
+flutter.sdk=E:\\flutter\\src\\flutter
+flutter.buildMode=debug
+flutter.versionName=1.0.0
+flutter.versionCode=1

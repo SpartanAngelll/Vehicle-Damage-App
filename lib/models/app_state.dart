@@ -128,8 +128,9 @@ class AppState extends ChangeNotifier {
       for (final estimateData in estimatesData) {
         final estimate = Estimate(
           id: estimateData['id'] as String,
-          reportId: estimateData['reportId'] as String,
-          ownerId: estimateData['ownerId'] as String,
+          reportId: estimateData['reportId'] as String? ?? '',
+          jobRequestId: estimateData['jobRequestId'] as String? ?? estimateData['requestId'] as String?,
+          ownerId: estimateData['customerId'] as String? ?? estimateData['ownerId'] as String? ?? '',
           repairProfessionalId: estimateData['professionalId'] as String,
           repairProfessionalEmail: estimateData['professionalEmail'] as String,
           repairProfessionalBio: estimateData['professionalBio'] as String?,
@@ -169,8 +170,9 @@ class AppState extends ChangeNotifier {
       for (final estimateData in estimatesData) {
         final estimate = Estimate(
           id: estimateData['id'] as String,
-          reportId: estimateData['reportId'] as String,
-          ownerId: estimateData['ownerId'] as String,
+          reportId: estimateData['reportId'] as String? ?? '',
+          jobRequestId: estimateData['jobRequestId'] as String? ?? estimateData['requestId'] as String?,
+          ownerId: estimateData['customerId'] as String? ?? estimateData['ownerId'] as String? ?? '',
           repairProfessionalId: estimateData['professionalId'] as String,
           repairProfessionalEmail: estimateData['professionalEmail'] as String,
           repairProfessionalBio: estimateData['professionalBio'] as String?,
@@ -313,11 +315,13 @@ class AppState extends ChangeNotifier {
           
           final firestoreService = FirebaseFirestoreService();
           await firestoreService.updateEstimateStatus(
-            estimateId: estimate.id,
-            status: newStatus.name,
-            acceptedAt: updatedEstimate.acceptedAt,
-            declinedAt: updatedEstimate.declinedAt,
-            cost: estimate.cost, // Include cost for accepted estimates
+            estimate.id,
+            newStatus.name,
+            additionalData: {
+              'acceptedAt': updatedEstimate.acceptedAt,
+              'declinedAt': updatedEstimate.declinedAt,
+              'cost': estimate.cost, // Include cost for accepted estimates
+            },
           );
         } catch (e) {
           // If Firestore update fails, revert local changes
@@ -634,8 +638,9 @@ class AppState extends ChangeNotifier {
         // Add estimates from Firestore
         for (final estimateData in estimatesData) {
           final estimate = Estimate(
-            reportId: estimateData['reportId'] as String,
-            ownerId: estimateData['ownerId'] as String,
+            reportId: estimateData['reportId'] as String? ?? '',
+            jobRequestId: estimateData['jobRequestId'] as String? ?? estimateData['requestId'] as String?,
+            ownerId: estimateData['customerId'] as String? ?? estimateData['ownerId'] as String? ?? '',
             repairProfessionalId: estimateData['professionalId'] as String,
             repairProfessionalEmail: estimateData['professionalEmail'] as String,
             repairProfessionalBio: estimateData['professionalBio'] as String?,
@@ -711,7 +716,7 @@ class AppState extends ChangeNotifier {
       _clearError();
 
       final firestoreService = FirebaseFirestoreService();
-      await firestoreService.updateEstimateStatus(estimateId: estimateId, status: status);
+      await firestoreService.updateEstimateStatus(estimateId, status);
       
       // Update local estimate status
       for (final report in _reports) {

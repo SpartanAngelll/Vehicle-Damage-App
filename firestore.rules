@@ -1,27 +1,180 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can read/write their own profile
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner() {
+      return request.auth != null && request.auth.uid == resource.data.ownerId;
+    }
+    
+    function isServiceProfessional() {
+      return request.auth != null && resource.data.role == 'serviceProfessional';
+    }
+    
+    function isOwnerOrProfessional() {
+      return request.auth != null && (
+        resource.data.ownerId == request.auth.uid || 
+        resource.data.repairProfessionalId == request.auth.uid ||
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+    }
+    
+    // Users can read/write their own profile and Allow authenticated users to read all profiles
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isAuthenticated();
     }
     
     // Damage report owners can read/write their reports, professionals can read pending reports
     match /damage_reports/{reportId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (resource == null || resource.data.ownerId == request.auth.uid);
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
     }
     
-    // Estimates - professionals can update their own estimates, owners can update estimates for their reports
+    // Estimates collection (updated to support both systems)
     match /estimates/{estimateId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null && (
-        // Professionals can update their own estimates
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        // Allow update if user is the owner (either direct ownerId or through report)
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.repairProfessionalId == request.auth.uid ||
+        resource.data.customerId == request.auth.uid ||
         resource.data.professionalId == request.auth.uid ||
-        // Vehicle owners can update estimates for their damage reports
-        resource.data.ownerId == request.auth.uid
+        // Allow update if user owns the damage report this estimate is for
+        (resource.data.reportId != null && 
+         exists(/databases/$(database)/documents/damage_reports/$(resource.data.reportId)) &&
+         get(/databases/$(database)/documents/damage_reports/$(resource.data.reportId)).data.ownerId == request.auth.uid)
       );
+      allow delete: if false; // Soft delete only
+    }
+    
+    // Service categories - allow authenticated users to read and write (for seeding)
+    match /service_categories/{categoryId} {
+      allow read, create, update: if isAuthenticated();
+    }
+    
+    // Job requests - allow authenticated users to read and create
+    match /job_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+    }
+    
+    // Service professionals - allow authenticated users to read and write their own profile
+    match /service_professionals/{professionalId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Chat rooms - allow participants to read/write
+    match /chat_rooms/{roomId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.customerId == request.auth.uid ||
+        request.resource.data.professionalId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+    }
+    
+    // Allow querying chat rooms collection for authenticated users
+    // This is needed for getUserChatRoomsStream to work
+    match /chat_rooms/{roomId} {
+      allow list: if isAuthenticated();
+    }
+    
+    // Chat messages - allow participants of the chat room to read/write
+    match /chat_rooms/{roomId}/messages/{messageId} {
+      allow read: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/chat_rooms/$(roomId)) &&
+        (get(/databases/$(database)/documents/chat_rooms/$(roomId)).data.customerId == request.auth.uid ||
+         get(/databases/$(database)/documents/chat_rooms/$(roomId)).data.professionalId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/chat_rooms/$(roomId)) &&
+        (get(/databases/$(database)/documents/chat_rooms/$(roomId)).data.customerId == request.auth.uid ||
+         get(/databases/$(database)/documents/chat_rooms/$(roomId)).data.professionalId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/chat_rooms/$(roomId)) &&
+        (get(/databases/$(database)/documents/chat_rooms/$(roomId)).data.customerId == request.auth.uid ||
+         get(/databases/$(database)/documents/chat_rooms/$(roomId)).data.professionalId == request.auth.uid)
+      );
+    }
+    
+    // Chat messages collection (separate collection used by the app)
+    match /chat_messages/{messageId} {
+      allow read: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/chat_rooms/$(resource.data.chatRoomId)) &&
+        (get(/databases/$(database)/documents/chat_rooms/$(resource.data.chatRoomId)).data.customerId == request.auth.uid ||
+         get(/databases/$(database)/documents/chat_rooms/$(resource.data.chatRoomId)).data.professionalId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/chat_rooms/$(request.resource.data.chatRoomId)) &&
+        (get(/databases/$(database)/documents/chat_rooms/$(request.resource.data.chatRoomId)).data.customerId == request.auth.uid ||
+         get(/databases/$(database)/documents/chat_rooms/$(request.resource.data.chatRoomId)).data.professionalId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/chat_rooms/$(resource.data.chatRoomId)) &&
+        (get(/databases/$(database)/documents/chat_rooms/$(resource.data.chatRoomId)).data.customerId == request.auth.uid ||
+         get(/databases/$(database)/documents/chat_rooms/$(resource.data.chatRoomId)).data.professionalId == request.auth.uid)
+      );
+    }
+    
+    // Bookings - allow participants to read/write
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.customerId == request.auth.uid ||
+        request.resource.data.professionalId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+    }
+    
+    // Reviews - allow authenticated users to read all reviews, but only create/update their own
+    match /reviews/{reviewId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        request.resource.data.customerId == request.auth.uid ||
+        request.resource.data.professionalId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+      allow delete: if false; // Prevent deletion of reviews
+    }
+    
+    // Professional reviews - allow authenticated users to read all reviews, but only create/update their own
+    match /professional_reviews/{reviewId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        request.resource.data.customerId == request.auth.uid ||
+        request.resource.data.professionalId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+      allow delete: if false; // Prevent deletion of reviews
     }
   }
 }

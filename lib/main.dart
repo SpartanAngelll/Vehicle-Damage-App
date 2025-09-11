@@ -4,6 +4,10 @@ import 'models/models.dart';
 import 'screens/screens.dart';
 import 'theme/theme.dart';
 import 'services/services.dart';
+import 'services/firebase_firestore_service.dart';
+import 'services/api_key_service.dart';
+import 'services/openai_service.dart';
+import 'services/network_connectivity_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -16,12 +20,26 @@ void main() {
 class AppInitializer extends StatelessWidget {
   const AppInitializer({super.key});
   
+  Future<void> _initializeApp() async {
+    // Initialize Firebase
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    
+    // Initialize API keys
+    await ApiKeyService.initialize();
+    
+    // Initialize network connectivity service
+    await NetworkConnectivityService().initialize();
+    
+    // Initialize OpenAI service
+    OpenAIService().initialize();
+  }
+  
   @override
   Widget build(BuildContext context) {
     return FutureBuilder(
-      future: Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      ),
+      future: _initializeApp(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
           return MultiProvider(
@@ -54,7 +72,7 @@ class VehicleDamageApp extends StatelessWidget {
     return Consumer2<ThemeProvider, FirebaseAuthService>(
       builder: (context, themeProvider, authService, child) {
         return MaterialApp(
-          title: 'Vehicle Damage Estimator',
+          title: 'Multi-Service Professional Network',
           theme: themeProvider.currentTheme,
           themeMode: themeProvider.themeMode,
           home: AuthWrapper(authService: authService),
@@ -65,6 +83,8 @@ class VehicleDamageApp extends StatelessWidget {
             '/ownerDashboard': (context) => OwnerDashboard(),
             '/repairmanDashboard': (context) => RepairmanDashboard(),
             '/settings': (context) => SettingsScreen(),
+            '/serviceProfessionalRegistration': (context) => ServiceProfessionalRegistrationScreen(),
+            '/serviceRequest': (context) => ServiceRequestScreen(),
           },
         );
       },
@@ -97,6 +117,42 @@ class _AuthWrapperState extends State<AuthWrapper> {
     });
   }
 
+  Future<void> _initializeFCMToken(String userId) async {
+    try {
+      final notificationService = SimpleNotificationService();
+      await notificationService.initialize();
+      print('FCM token initialized for user: $userId');
+    } catch (e) {
+      print('Failed to initialize FCM token for user $userId: $e');
+    }
+  }
+
+  Future<void> _initializeAppData() async {
+    try {
+      final initService = AppInitializationService();
+      await initService.initializeApp();
+    } catch (e) {
+      print('Failed to initialize app data: $e');
+    }
+  }
+
+  Future<bool> _checkServiceProfessionalProfile(String userId) async {
+    try {
+      final firestoreService = context.read<FirebaseFirestoreService>();
+      final professionalProfile = await firestoreService.getServiceProfessional(userId);
+      if (professionalProfile != null) {
+        debugPrint('🔍 [Main] Service professional profile found for user: $userId');
+        return true;
+      } else {
+        debugPrint('🔍 [Main] No service professional profile found for user: $userId');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('🔍 [Main] Error checking service professional profile for user $userId: $e');
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer2<FirebaseAuthService, UserState>(
@@ -110,18 +166,69 @@ class _AuthWrapperState extends State<AuthWrapper> {
         if (authService.isSignedIn && authService.user != null) {
           // Check if UserState is already initialized
           if (userState.isAuthenticated && userState.userId != null) {
-            // UserState is already initialized, show appropriate dashboard
-            final route = userState.isRepairman ? '/repairmanDashboard' : '/ownerDashboard';
-            
-            // Use a post-frame callback to avoid navigation during build
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && ModalRoute.of(context)?.settings.name != route) {
-                Navigator.pushReplacementNamed(context, route);
-              }
-            });
-            
-            // Return current route content
-            return _getDashboardForUser(userState);
+            // UserState is already initialized, determine appropriate route
+            if (userState.isOwner) {
+              // Use a post-frame callback to avoid navigation during build
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && ModalRoute.of(context)?.settings.name != '/ownerDashboard') {
+                  Navigator.pushReplacementNamed(context, '/ownerDashboard');
+                }
+              });
+              
+              // Initialize FCM token for already authenticated user
+              _initializeFCMToken(userState.userId!);
+              
+              // Initialize app data after authentication
+              _initializeAppData();
+              
+              return _getDashboardForUser(userState);
+            } else if (userState.isRepairman || userState.isServiceProfessional) {
+              // For service professionals, check if they have a complete profile asynchronously
+              return FutureBuilder<bool>(
+                future: _checkServiceProfessionalProfile(userState.userId!),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Scaffold(
+                      body: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  
+                  final hasProfile = snapshot.data ?? false;
+                  final route = hasProfile ? '/repairmanDashboard' : '/serviceProfessionalRegistration';
+                  
+                  // Use a post-frame callback to avoid navigation during build
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && ModalRoute.of(context)?.settings.name != route) {
+                      Navigator.pushReplacementNamed(context, route);
+                    }
+                  });
+                  
+                  // Initialize FCM token for already authenticated user
+                  _initializeFCMToken(userState.userId!);
+                  
+                  // Initialize app data after authentication
+                  _initializeAppData();
+                  
+                  // Return appropriate content based on route
+                  if (route == '/serviceProfessionalRegistration') {
+                    return ServiceProfessionalRegistrationScreen();
+                  } else {
+                    return _getDashboardForUser(userState);
+                  }
+                },
+              );
+            } else {
+              // Default to owner dashboard
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && ModalRoute.of(context)?.settings.name != '/ownerDashboard') {
+                  Navigator.pushReplacementNamed(context, '/ownerDashboard');
+                }
+              });
+              
+              _initializeFCMToken(userState.userId!);
+              _initializeAppData();
+              return _getDashboardForUser(userState);
+            }
           }
           
           // UserState not initialized yet, load profile from Firestore
@@ -138,27 +245,81 @@ class _AuthWrapperState extends State<AuthWrapper> {
                 // Initialize UserState with Firebase data
                 final userData = snapshot.data!;
                 
+                // Use 'role' field from Firestore, fallback to 'userType' for backward compatibility
+                final userType = userData['role'] ?? userData['userType'] ?? 'owner';
+                
+                debugPrint('🔍 [Main] User data from Firestore: $userData');
+                debugPrint('🔍 [Main] Extracted userType: $userType');
+                debugPrint('🔍 [Main] User role field: ${userData['role']}');
+                debugPrint('🔍 [Main] User userType field: ${userData['userType']}');
+                
                 userState.initializeFromFirebase(
                   userId: authService.user!.uid,
                   email: userData['email'] ?? authService.user!.email ?? '',
-                  userType: userData['userType'] ?? 'owner',
-                  phoneNumber: userData['phoneNumber'],
+                  userType: userType,
+                  phoneNumber: userData['phone'],
                   bio: userData['bio'],
+                  currentUser: authService.user,
                 );
 
-                // Navigate to appropriate dashboard
-                final userType = userData['userType'] ?? 'owner';
-                final route = userType == 'owner' ? '/ownerDashboard' : '/repairmanDashboard';
-                
-                // Use a post-frame callback to avoid navigation during build
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && ModalRoute.of(context)?.settings.name != route) {
-                    Navigator.pushReplacementNamed(context, route);
-                  }
-                });
-                
-                // Return dashboard content immediately
-                return _getDashboardForUser(userState);
+                // Initialize FCM token for the user
+                _initializeFCMToken(authService.user!.uid);
+
+                // Initialize app data after authentication
+                _initializeAppData();
+
+                // Navigate to appropriate dashboard based on user type and profile completeness
+                if (userType == 'owner') {
+                  // Use a post-frame callback to avoid navigation during build
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && ModalRoute.of(context)?.settings.name != '/ownerDashboard') {
+                      Navigator.pushReplacementNamed(context, '/ownerDashboard');
+                    }
+                  });
+                  
+                  // Initialize FCM token for the user
+                  _initializeFCMToken(authService.user!.uid);
+
+                  // Initialize app data after authentication
+                  _initializeAppData();
+                  
+                  return _getDashboardForUser(userState);
+                } else {
+                  // For service professionals, check if they have a complete profile asynchronously
+                  return FutureBuilder<bool>(
+                    future: _checkServiceProfessionalProfile(authService.user!.uid),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Scaffold(
+                          body: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      
+                      final hasProfile = snapshot.data ?? false;
+                      final route = hasProfile ? '/repairmanDashboard' : '/serviceProfessionalRegistration';
+                      
+                      // Use a post-frame callback to avoid navigation during build
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && ModalRoute.of(context)?.settings.name != route) {
+                          Navigator.pushReplacementNamed(context, route);
+                        }
+                      });
+                      
+                      // Initialize FCM token for the user
+                      _initializeFCMToken(authService.user!.uid);
+
+                      // Initialize app data after authentication
+                      _initializeAppData();
+                      
+                      // Return appropriate content based on route
+                      if (route == '/serviceProfessionalRegistration') {
+                        return ServiceProfessionalRegistrationScreen();
+                      } else {
+                        return _getDashboardForUser(userState);
+                      }
+                    },
+                  );
+                }
               }
 
               // Show loading while determining route
@@ -176,7 +337,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Widget _getDashboardForUser(UserState userState) {
-    if (userState.isRepairman) {
+    if (userState.isRepairman || userState.isServiceProfessional) {
       return RepairmanDashboard();
     } else {
       return OwnerDashboard();

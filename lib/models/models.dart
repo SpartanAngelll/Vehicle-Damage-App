@@ -2,3 +2,8 @@ export 'damage_report.dart';
 export 'app_state.dart';
 export 'user_state.dart';
 export 'navigation_state.dart';
+export 'service_category.dart';
+export 'service_professional.dart';
+export 'job_request.dart';
+export 'chat_models.dart';
+export 'booking_models.dart';

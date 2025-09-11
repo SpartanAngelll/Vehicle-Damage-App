@@ -1,117 +1,213 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+import '../models/service_professional.dart';
+import '../models/booking_models.dart';
 
 class FirebaseFirestoreService {
+  static final FirebaseFirestoreService _instance = FirebaseFirestoreService._internal();
+  factory FirebaseFirestoreService() => _instance;
+  FirebaseFirestoreService._internal();
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final CollectionReference _usersCollection = FirebaseFirestore.instance.collection('users');
-  final CollectionReference _damageReportsCollection = FirebaseFirestore.instance.collection('damage_reports');
-  final CollectionReference _estimatesCollection = FirebaseFirestore.instance.collection('estimates');
 
-  // Test Firestore connection
-  Future<bool> testFirestoreConnection() async {
+  // Collections
+  CollectionReference get _usersCollection => _firestore.collection('users');
+  CollectionReference get _serviceProfessionalsCollection => _firestore.collection('service_professionals');
+  CollectionReference get _bookingsCollection => _firestore.collection('bookings');
+  CollectionReference get _damageReportsCollection => _firestore.collection('damage_reports');
+  CollectionReference get _estimatesCollection => _firestore.collection('estimates');
+
+  /// Get user bookings
+  Future<List<Map<String, dynamic>>> getUserBookings(String userId, {String? userType}) async {
     try {
-      debugPrint('Testing Firestore connection...');
+      String fieldName = userType == 'professional' ? 'professionalId' : 'customerId';
       
-      // Simple connectivity test - just check if we can access Firestore
-      await _firestore.runTransaction((transaction) async {
-        // This just tests basic connectivity without requiring specific permissions
-        return true;
-      });
-      
-      debugPrint('Firestore basic connectivity test passed');
-      
-      // Try to read from existing collections to test permissions
-      try {
-        final testDoc = await _usersCollection.limit(1).get();
-        debugPrint('Firestore read test successful - can access users collection');
-      } catch (e) {
-        debugPrint('Users collection access failed: $e');
-      }
-      
-      try {
-        final reportsTest = await _damageReportsCollection.limit(1).get();
-        debugPrint('Firestore read test successful - can access damage_reports collection');
-      } catch (e) {
-        debugPrint('Damage reports collection access failed: $e');
-      }
-      
-      try {
-        final estimatesTest = await _estimatesCollection.limit(1).get();
-        debugPrint('Firestore read test successful - can access estimates collection');
-      } catch (e) {
-        debugPrint('Estimates collection access failed: $e');
-      }
-      
-      debugPrint('Firestore connection test completed');
-      return true;
+      final querySnapshot = await _bookingsCollection
+          .where(fieldName, isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
     } catch (e) {
-      debugPrint('Firestore connection test failed: $e');
-      return false;
+      print('❌ [FirebaseFirestoreService] Error getting user bookings: $e');
+      rethrow;
     }
   }
 
-  // Test Firestore write permissions (optional)
-  Future<bool> testFirestoreWritePermissions() async {
+  /// Get service professional by ID
+  Future<ServiceProfessional?> getServiceProfessional(String professionalId) async {
     try {
-      debugPrint('Testing Firestore write permissions...');
+      print('🔍 [FirebaseFirestoreService] Getting service professional profile for ID: $professionalId');
       
-      // Try to create a test user profile (this should work if user is authenticated)
-      final testUserId = 'test_user_${DateTime.now().millisecondsSinceEpoch}';
-      await _usersCollection.doc(testUserId).set({
-        'email': 'test@example.com',
-        'role': 'test',
-        'createdAt': FieldValue.serverTimestamp(),
+      // First, try the service_professionals collection
+      var doc = await _serviceProfessionalsCollection.doc(professionalId).get();
+      print('🔍 [FirebaseFirestoreService] service_professionals collection - Document exists: ${doc.exists}');
+      
+      if (!doc.exists) {
+        // Try the users collection (in case the data is stored there with role field)
+        print('🔍 [FirebaseFirestoreService] Trying users collection...');
+        doc = await _usersCollection.doc(professionalId).get();
+        print('🔍 [FirebaseFirestoreService] users collection - Document exists: ${doc.exists}');
+        
+        if (!doc.exists) {
+          // Try the professionals collection (alternative naming)
+          print('🔍 [FirebaseFirestoreService] Trying professionals collection...');
+          doc = await _firestore.collection('professionals').doc(professionalId).get();
+          print('🔍 [FirebaseFirestoreService] professionals collection - Document exists: ${doc.exists}');
+        }
+      }
+      
+      if (!doc.exists) {
+        print('❌ [FirebaseFirestoreService] No document found for professional ID: $professionalId in any collection');
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      print('🔍 [FirebaseFirestoreService] Document data: $data');
+      
+      // Check if this is a user document with role field
+      if (data['role'] == 'service_professional') {
+        print('🔍 [FirebaseFirestoreService] Found service professional in users collection');
+        print('🔍 [FirebaseFirestoreService] User document fields: ${data.keys.toList()}');
+        
+        // Check if this is a complete service professional profile or just a basic user with role
+        final hasServiceProfessionalFields = data.containsKey('categoryIds') || 
+                                           data.containsKey('specializations') || 
+                                           data.containsKey('businessName');
+        
+        if (!hasServiceProfessionalFields) {
+          print('⚠️ [FirebaseFirestoreService] User has service_professional role but incomplete profile - missing service professional fields');
+          print('⚠️ [FirebaseFirestoreService] This user needs to complete their service professional registration');
+          return null; // Return null to trigger registration flow
+        }
+        
+        final professional = ServiceProfessional.fromMap(data, doc.id);
+        print('✅ [FirebaseFirestoreService] Service professional profile loaded successfully from users collection');
+        return professional;
+      } else {
+        // Regular service professional document
+        final professional = ServiceProfessional.fromMap(data, doc.id);
+        print('✅ [FirebaseFirestoreService] Service professional profile loaded successfully');
+        return professional;
+      }
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting service professional: $e');
+      return null;
+    }
+  }
+
+  /// Update service professional
+  Future<void> updateServiceProfessional(ServiceProfessional professional) async {
+    try {
+      print('🔍 [FirebaseFirestoreService] Updating service professional profile for user: ${professional.userId}');
+      print('🔍 [FirebaseFirestoreService] Using document ID: ${professional.userId}');
+      print('🔍 [FirebaseFirestoreService] Professional data: ${professional.toMap()}');
+      
+      // Update the service professional profile using the user ID as the document ID
+      await _serviceProfessionalsCollection.doc(professional.userId).update(professional.toMap());
+      print('✅ [FirebaseFirestoreService] Service professional profile updated successfully');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating service professional: $e');
+      rethrow;
+    }
+  }
+
+  /// Mark professional as on the way
+  Future<void> markProfessionalOnWay(String bookingId) async {
+    try {
+      await _bookingsCollection.doc(bookingId).update({
+        'status': 'on_my_way',
+        'onMyWayAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      
-      debugPrint('Firestore write test successful - created test user profile');
-      
-      // Clean up the test document
-      await _usersCollection.doc(testUserId).delete();
-      debugPrint('Firestore cleanup successful - deleted test user profile');
-      
-      return true;
     } catch (e) {
-      debugPrint('Firestore write permissions test failed: $e');
-      return false;
+      print('❌ [FirebaseFirestoreService] Error marking professional on way: $e');
+      rethrow;
     }
   }
 
-  // User operations
-  Future<void> createUserProfile({
-    required String userId,
-    required String email,
-    required String role,
-    String? phone,
-    String? bio,
-  }) async {
+  /// Mark job as started
+  Future<void> markJobStarted(String bookingId, String pin) async {
     try {
-      await _usersCollection.doc(userId).set({
-        'email': email,
-        'role': role,
-        'phone': phone,
-        'bio': bio,
-        'createdAt': FieldValue.serverTimestamp(),
+      await _bookingsCollection.doc(bookingId).update({
+        'status': 'in_progress',
+        'jobStartedAt': FieldValue.serverTimestamp(),
+        'customerPin': pin,
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      throw Exception('Failed to create user profile: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error marking job started: $e');
+      rethrow;
     }
   }
 
+  /// Mark job as completed
+  Future<void> markJobCompleted(String bookingId, {String? notes}) async {
+    try {
+      final updateData = {
+        'status': 'completed',
+        'jobCompletedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      if (notes != null) {
+        updateData['statusNotes'] = notes;
+      }
+
+      await _bookingsCollection.doc(bookingId).update(updateData);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error marking job completed: $e');
+      rethrow;
+    }
+  }
+
+  /// Accept job as completed (customer action)
+  Future<void> acceptJobAsCompleted(String bookingId) async {
+    try {
+      await _bookingsCollection.doc(bookingId).update({
+        'status': 'reviewed',
+        'jobAcceptedAt': FieldValue.serverTimestamp(),
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error accepting job as completed: $e');
+      rethrow;
+    }
+  }
+
+  /// Save booking data
+  Future<void> saveBooking(Map<String, dynamic> bookingData) async {
+    try {
+      await _bookingsCollection.doc(bookingData['id']).set(bookingData);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error saving booking: $e');
+      rethrow;
+    }
+  }
+
+  /// Get user profile
   Future<Map<String, dynamic>?> getUserProfile(String userId) async {
     try {
       final doc = await _usersCollection.doc(userId).get();
-      if (doc.exists) {
-        return doc.data() as Map<String, dynamic>;
+      
+      if (!doc.exists) {
+        return null;
       }
-      return null;
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
     } catch (e) {
-      throw Exception('Failed to get user profile: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting user profile: $e');
+      return null;
     }
   }
 
-  // Damage report operations
+  /// Create damage report
   Future<String> createDamageReport({
     required String ownerId,
     required String vehicleMake,
@@ -123,80 +219,118 @@ class FirebaseFirestoreService {
     List<String> imageUrls = const [],
   }) async {
     try {
-      debugPrint('Creating damage report in Firestore: ownerId=$ownerId, vehicle=$vehicleYear $vehicleMake $vehicleModel');
-      
       final docRef = await _damageReportsCollection.add({
         'ownerId': ownerId,
         'vehicleMake': vehicleMake,
         'vehicleModel': vehicleModel,
         'vehicleYear': vehicleYear,
         'damageDescription': damageDescription,
-        'imageUrls': imageUrls,
         'estimatedCost': estimatedCost,
         'additionalNotes': additionalNotes,
+        'imageUrls': imageUrls,
         'status': 'pending',
-        'timestamp': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
-      debugPrint('Damage report created successfully in Firestore with ID: ${docRef.id}');
       return docRef.id;
     } catch (e) {
-      debugPrint('Failed to create damage report in Firestore: $e');
-      throw Exception('Failed to create damage report: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error creating damage report: $e');
+      rethrow;
     }
   }
 
-  Future<void> updateDamageReport(String reportId, Map<String, dynamic> updates) async {
+  /// Get damage report by ID
+  Future<Map<String, dynamic>?> getDamageReport(String reportId) async {
     try {
-      debugPrint('Updating damage report in Firestore: reportId=$reportId');
+      final doc = await _damageReportsCollection.doc(reportId).get();
       
-      updates['updatedAt'] = FieldValue.serverTimestamp();
-      await _damageReportsCollection.doc(reportId).update(updates);
-      
-      debugPrint('Damage report updated successfully: $reportId');
+      if (!doc.exists) {
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
     } catch (e) {
-      debugPrint('Failed to update damage report in Firestore: $e');
-      throw Exception('Failed to update damage report: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting damage report: $e');
+      return null;
     }
   }
 
-  Future<List<Map<String, dynamic>>> getDamageReportsForOwner(String ownerId) async {
+  /// Get user's damage reports
+  Future<List<Map<String, dynamic>>> getDamageReportsForUser(String userId) async {
     try {
       final querySnapshot = await _damageReportsCollection
-          .where('ownerId', isEqualTo: ownerId)
+          .where('ownerId', isEqualTo: userId)
           .orderBy('createdAt', descending: true)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get damage reports: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting user damage reports: $e');
+      return [];
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAvailableJobsForProfessional() async {
+  /// Get all pending damage reports
+  Future<List<Map<String, dynamic>>> getAllPendingDamageReports() async {
     try {
       final querySnapshot = await _damageReportsCollection
           .where('status', isEqualTo: 'pending')
           .orderBy('createdAt', descending: true)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get available jobs: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting pending damage reports: $e');
+      return [];
     }
   }
 
-  // Estimate operations
+  /// Update damage report
+  Future<void> updateDamageReport(String reportId, Map<String, dynamic> updates) async {
+    try {
+      updates['updatedAt'] = FieldValue.serverTimestamp();
+      await _damageReportsCollection.doc(reportId).update(updates);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating damage report: $e');
+      rethrow;
+    }
+  }
+
+  /// Update damage report status
+  Future<void> updateDamageReportStatus(String reportId, String status) async {
+    try {
+      await _damageReportsCollection.doc(reportId).update({
+        'status': status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating damage report status: $e');
+      rethrow;
+    }
+  }
+
+  /// Delete damage report
+  Future<void> deleteDamageReport(String reportId) async {
+    try {
+      await _damageReportsCollection.doc(reportId).delete();
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error deleting damage report: $e');
+      rethrow;
+    }
+  }
+
+  /// Create estimate
   Future<String> createEstimate({
     required String reportId,
     required String ownerId,
@@ -209,8 +343,6 @@ class FirebaseFirestoreService {
     List<String> imageUrls = const [],
   }) async {
     try {
-      debugPrint('Creating estimate in Firestore: reportId=$reportId, professionalId=$professionalId');
-      
       final docRef = await _estimatesCollection.add({
         'reportId': reportId,
         'ownerId': ownerId,
@@ -224,277 +356,89 @@ class FirebaseFirestoreService {
         'status': 'pending',
         'submittedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'acceptedAt': null,
-        'declinedAt': null,
       });
       
-      debugPrint('Estimate created successfully in Firestore with ID: ${docRef.id}');
       return docRef.id;
     } catch (e) {
-      debugPrint('Failed to create estimate in Firestore: $e');
-      throw Exception('Failed to create estimate: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error creating estimate: $e');
+      rethrow;
     }
   }
 
-  Future<void> updateEstimateStatus({
-    required String estimateId,
-    required String status,
-    DateTime? acceptedAt,
-    DateTime? declinedAt,
-    double? cost,
-  }) async {
-    try {
-      debugPrint('Attempting to update estimate status...');
-      debugPrint('Estimate ID: $estimateId');
-      debugPrint('New Status: $status');
-      debugPrint('Cost: $cost');
-      
-      // First, let's read the current estimate to verify permissions
-      final estimateDoc = await _estimatesCollection.doc(estimateId).get();
-      if (!estimateDoc.exists) {
-        throw Exception('Estimate not found: $estimateId');
-      }
-      
-      final estimateData = estimateDoc.data() as Map<String, dynamic>;
-      debugPrint('Current estimate data: $estimateData');
-      debugPrint('Owner ID: ${estimateData['ownerId']}');
-      debugPrint('Professional ID: ${estimateData['professionalId']}');
-      
-      final updates = <String, dynamic>{
-        'status': status,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      
-      if (status == 'accepted') {
-        updates['acceptedAt'] = acceptedAt != null 
-            ? Timestamp.fromDate(acceptedAt)
-            : FieldValue.serverTimestamp();
-        // Include the cost at which the estimate was accepted
-        if (cost != null) {
-          updates['acceptedCost'] = cost;
-        }
-      } else if (status == 'declined') {
-        updates['declinedAt'] = declinedAt != null 
-            ? Timestamp.fromDate(declinedAt)
-            : FieldValue.serverTimestamp();
-        // Include the cost at which the estimate was declined
-        if (cost != null) {
-          updates['declinedCost'] = cost;
-        }
-      }
-      
-      debugPrint('Updates to apply: $updates');
-      await _estimatesCollection.doc(estimateId).update(updates);
-      debugPrint('Estimate status updated successfully: $status for estimate $estimateId');
-    } catch (e) {
-      debugPrint('Failed to update estimate status: $e');
-      throw Exception('Failed to update estimate status: ${e.toString()}');
-    }
-  }
-
+  /// Get estimates for report
   Future<List<Map<String, dynamic>>> getEstimatesForReport(String reportId) async {
     try {
       final querySnapshot = await _estimatesCollection
           .where('reportId', isEqualTo: reportId)
           .orderBy('submittedAt', descending: true)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get estimates for report: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting estimates for report: $e');
+      return [];
     }
   }
 
+  /// Get estimates for user
   Future<List<Map<String, dynamic>>> getEstimatesForUser(String userId) async {
     try {
-      final ownerEstimates = await _estimatesCollection
-          .where('ownerId', isEqualTo: userId)
-          .get();
-      
-      final professionalEstimates = await _estimatesCollection
+      final querySnapshot = await _estimatesCollection
           .where('professionalId', isEqualTo: userId)
+          .orderBy('submittedAt', descending: true)
           .get();
-      
-      final allEstimates = <Map<String, dynamic>>[];
-      
-      // Add owner estimates
-      for (var doc in ownerEstimates.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        allEstimates.add({
-          'id': doc.id,
-          ...data,
-        });
-      }
-      
-      // Add professional estimates
-      for (var doc in professionalEstimates.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        allEstimates.add({
-          'id': doc.id,
-          ...data,
-        });
-      }
-      
-      // Sort by submittedAt descending
-      allEstimates.sort((a, b) {
-        final aTime = a['submittedAt'] as Timestamp;
-        final bTime = b['submittedAt'] as Timestamp;
-        return bTime.compareTo(aTime);
-      });
-      
-      return allEstimates;
-    } catch (e) {
-      throw Exception('Failed to get estimates for user: ${e.toString()}');
-    }
-  }
 
-  // Real-time listeners
-  Stream<QuerySnapshot> getDamageReportsStream(String ownerId) {
-    return _damageReportsCollection
-        .where('ownerId', isEqualTo: ownerId)
-        .orderBy('createdAt', descending: true)
-        .snapshots();
-  }
-
-  Stream<QuerySnapshot> getAvailableJobsStream() {
-    return _damageReportsCollection
-        .where('status', isEqualTo: 'pending')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
-  }
-
-  Stream<QuerySnapshot> getEstimatesStream(String professionalId) {
-    return _estimatesCollection
-        .where('professionalId', isEqualTo: professionalId)
-        .orderBy('submittedAt', descending: true)
-        .snapshots();
-  }
-
-  // Additional methods for the new functionality
-  Future<Map<String, dynamic>?> getDamageReport(String reportId) async {
-    try {
-      debugPrint('Fetching damage report from Firestore: reportId=$reportId');
-      
-      final doc = await _damageReportsCollection.doc(reportId).get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        data['id'] = doc.id;
-        debugPrint('Damage report fetched successfully: ${doc.id}');
-        return data;
-      } else {
-        debugPrint('Damage report not found: $reportId');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('Failed to fetch damage report from Firestore: $e');
-      throw Exception('Failed to fetch damage report: ${e.toString()}');
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getDamageReportsForUser(String userId) async {
-    try {
-      debugPrint('Fetching damage reports for user: userId=$userId');
-      
-      final querySnapshot = await _damageReportsCollection
-          .where('ownerId', isEqualTo: userId)
-          .orderBy('createdAt', descending: true)
-          .get();
-      
-      final reports = querySnapshot.docs.map((doc) {
+      return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
-      
-      debugPrint('Fetched ${reports.length} damage reports for user: $userId');
-      return reports;
     } catch (e) {
-      debugPrint('Failed to fetch damage reports for user: $e');
-      throw Exception('Failed to fetch damage reports: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting estimates for user: $e');
+      return [];
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAllPendingDamageReports() async {
+  /// Update estimate status
+  Future<void> updateEstimateStatus(String estimateId, String status, {Map<String, dynamic>? additionalData}) async {
     try {
-      debugPrint('Fetching all pending damage reports from Firestore');
-      
-      final querySnapshot = await _damageReportsCollection
-          .where('status', isEqualTo: 'pending')
-          .orderBy('createdAt', descending: true)
-          .get();
-      
-      final reports = querySnapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-      
-      debugPrint('Fetched ${reports.length} pending damage reports');
-      return reports;
-    } catch (e) {
-      debugPrint('Failed to fetch pending damage reports: $e');
-      throw Exception('Failed to fetch pending damage reports: ${e.toString()}');
-    }
-  }
-
-  Future<void> updateDamageReportStatus(String reportId, String status) async {
-    try {
-      debugPrint('Updating damage report status in Firestore: reportId=$reportId, status=$status');
-      
-      await _damageReportsCollection.doc(reportId).update({
+      final updateData = <String, Object>{
         'status': status,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
-      
-      debugPrint('Damage report status updated successfully: $reportId -> $status');
-    } catch (e) {
-      debugPrint('Failed to update damage report status in Firestore: $e');
-      throw Exception('Failed to update damage report status: ${e.toString()}');
-    }
-  }
+      };
 
-  Future<void> deleteDamageReport(String reportId) async {
-    try {
-      debugPrint('Deleting damage report from Firestore: reportId=$reportId');
-      
-      await _damageReportsCollection.doc(reportId).delete();
-      
-      debugPrint('Damage report deleted successfully: $reportId');
-    } catch (e) {
-      debugPrint('Failed to delete damage report from Firestore: $e');
-      throw Exception('Failed to delete damage report: ${e.toString()}');
-    }
-  }
-
-  // Batch operations for multiple damage reports
-  Future<void> saveMultipleDamageReports(List<Map<String, dynamic>> reports) async {
-    try {
-      debugPrint('Saving ${reports.length} damage reports to Firestore in batch');
-      
-      final batch = _firestore.batch();
-      
-      for (final report in reports) {
-        final docRef = _damageReportsCollection.doc();
-        batch.set(docRef, {
-          ...report,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+      if (status == 'accepted') {
+        updateData['acceptedAt'] = FieldValue.serverTimestamp();
+      } else if (status == 'declined') {
+        updateData['declinedAt'] = FieldValue.serverTimestamp();
       }
-      
-      await batch.commit();
-      debugPrint('Successfully saved ${reports.length} damage reports to Firestore');
+
+      if (additionalData != null) {
+        updateData.addAll(additionalData.cast<String, Object>());
+      }
+
+      await _estimatesCollection.doc(estimateId).update(updateData);
     } catch (e) {
-      debugPrint('Failed to save multiple damage reports to Firestore: $e');
-      throw Exception('Failed to save multiple damage reports: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error updating estimate status: $e');
+      rethrow;
     }
   }
 
-  // Search damage reports by criteria
+  /// Delete estimate
+  Future<void> deleteEstimate(String estimateId) async {
+    try {
+      await _estimatesCollection.doc(estimateId).delete();
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error deleting estimate: $e');
+      rethrow;
+    }
+  }
+
+  /// Search damage reports
   Future<List<Map<String, dynamic>>> searchDamageReports({
     String? ownerId,
     String? status,
@@ -506,10 +450,8 @@ class FirebaseFirestoreService {
     double? maxCost,
   }) async {
     try {
-      debugPrint('Searching damage reports with criteria: ownerId=$ownerId, status=$status, vehicleMake=$vehicleMake');
-      
       Query query = _damageReportsCollection;
-      
+
       if (ownerId != null) {
         query = query.where('ownerId', isEqualTo: ownerId);
       }
@@ -534,110 +476,341 @@ class FirebaseFirestoreService {
       if (maxCost != null) {
         query = query.where('estimatedCost', isLessThanOrEqualTo: maxCost);
       }
-      
+
       query = query.orderBy('createdAt', descending: true);
-      
+
       final querySnapshot = await query.get();
-      final reports = querySnapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-      
-      debugPrint('Search returned ${reports.length} damage reports');
-      return reports;
-    } catch (e) {
-      debugPrint('Failed to search damage reports: $e');
-      throw Exception('Failed to search damage reports: ${e.toString()}');
-    }
-  }
 
-
-
-  // Delete estimate
-  Future<void> deleteEstimate(String estimateId) async {
-    try {
-      debugPrint('Deleting estimate from Firestore: estimateId=$estimateId');
-      
-      await _estimatesCollection.doc(estimateId).delete();
-      
-      debugPrint('Estimate deleted successfully: $estimateId');
-    } catch (e) {
-      debugPrint('Failed to delete estimate from Firestore: $e');
-      throw Exception('Failed to delete estimate: ${e.toString()}');
-    }
-  }
-
-  // Get estimates by status for a specific repair professional
-  Future<List<Map<String, dynamic>>> getEstimatesByProfessionalAndStatus(String professionalId, String status) async {
-    try {
-      final querySnapshot = await _estimatesCollection
-          .where('professionalId', isEqualTo: professionalId)
-          .where('status', isEqualTo: status)
-          .orderBy('submittedAt', descending: true)
-          .get();
-      
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get estimates by status: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error searching damage reports: $e');
+      return [];
     }
   }
 
-  // Get all estimates for a specific repair professional
+  /// Get damage reports stream
+  Stream<QuerySnapshot> getDamageReportsStream(String ownerId) {
+    return _damageReportsCollection
+        .where('ownerId', isEqualTo: ownerId)
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  /// Get available jobs stream
+  Stream<QuerySnapshot> getAvailableJobsStream() {
+    return _damageReportsCollection
+        .where('status', isEqualTo: 'pending')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  /// Get estimates stream
+  Stream<QuerySnapshot> getEstimatesStream(String professionalId) {
+    return _estimatesCollection
+        .where('professionalId', isEqualTo: professionalId)
+        .orderBy('submittedAt', descending: true)
+        .snapshots();
+  }
+
+  /// Get job request by ID
+  Future<Map<String, dynamic>?> getJobRequest(String jobRequestId) async {
+    try {
+      final doc = await _firestore.collection('job_requests').doc(jobRequestId).get();
+      
+      if (!doc.exists) {
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting job request: $e');
+      return null;
+    }
+  }
+
+  /// Get estimate by ID
+  Future<Map<String, dynamic>?> getEstimate(String estimateId) async {
+    try {
+      final doc = await _estimatesCollection.doc(estimateId).get();
+      
+      if (!doc.exists) {
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting estimate: $e');
+      return null;
+    }
+  }
+
+  /// Get booking by ID
+  Future<Map<String, dynamic>?> getBooking(String bookingId) async {
+    try {
+      final doc = await _bookingsCollection.doc(bookingId).get();
+      
+      if (!doc.exists) {
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting booking: $e');
+      return null;
+    }
+  }
+
+  /// Update booking status
+  Future<void> updateBookingStatus(String bookingId, String status, {Map<String, dynamic>? additionalData}) async {
+    try {
+      final updateData = <String, Object>{
+        'status': status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      if (additionalData != null) {
+        updateData.addAll(additionalData.cast<String, Object>());
+      }
+
+      await _bookingsCollection.doc(bookingId).update(updateData);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating booking status: $e');
+      rethrow;
+    }
+  }
+
+  /// Get all estimates for professional
   Future<List<Map<String, dynamic>>> getAllEstimatesForProfessional(String professionalId) async {
     try {
       final querySnapshot = await _estimatesCollection
           .where('professionalId', isEqualTo: professionalId)
           .orderBy('submittedAt', descending: true)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get all estimates for professional: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting all estimates for professional: $e');
+      return [];
     }
   }
 
-  // Get all estimates for a specific owner (vehicle owner)
+  /// Get job requests by categories
+  Future<List<Map<String, dynamic>>> getJobRequestsByCategories(List<String> categoryIds) async {
+    try {
+      final querySnapshot = await _firestore.collection('job_requests')
+          .where('categoryIds', arrayContainsAny: categoryIds)
+          .where('status', isEqualTo: 'pending')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting job requests by categories: $e');
+      return [];
+    }
+  }
+
+  /// Create estimate for service request
+  Future<String> createEstimateForServiceRequest({
+    required String jobRequestId,
+    required String professionalId,
+    required String professionalEmail,
+    String? professionalBio,
+    required double cost,
+    required int leadTimeDays,
+    required String description,
+    List<String> imageUrls = const [],
+  }) async {
+    try {
+      final docRef = await _estimatesCollection.add({
+        'jobRequestId': jobRequestId,
+        'professionalId': professionalId,
+        'professionalEmail': professionalEmail,
+        'professionalBio': professionalBio,
+        'cost': cost,
+        'leadTimeDays': leadTimeDays,
+        'description': description,
+        'imageUrls': imageUrls,
+        'status': 'pending',
+        'submittedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      return docRef.id;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error creating estimate for service request: $e');
+      rethrow;
+    }
+  }
+
+  /// Migrate estimates with owner ID
+  Future<void> migrateEstimatesWithOwnerId() async {
+    try {
+      // This is a migration method - implementation depends on specific migration needs
+      print('ℹ️ [FirebaseFirestoreService] Migration method called - no action needed');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error in migration: $e');
+      rethrow;
+    }
+  }
+
+  /// Get damage reports for owner (alias for getDamageReportsForUser)
+  Future<List<Map<String, dynamic>>> getDamageReportsForOwner(String ownerId) async {
+    return getDamageReportsForUser(ownerId);
+  }
+
+  /// Get all estimates for owner
   Future<List<Map<String, dynamic>>> getAllEstimatesForOwner(String ownerId) async {
     try {
       final querySnapshot = await _estimatesCollection
           .where('ownerId', isEqualTo: ownerId)
           .orderBy('submittedAt', descending: true)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get all estimates for owner: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting all estimates for owner: $e');
+      return [];
     }
   }
 
-  // Get estimates by status for a specific owner
-  Future<List<Map<String, dynamic>>> getEstimatesByStatusForOwner(String ownerId, String status) async {
+  /// Create user profile
+  Future<void> createUserProfile(Map<String, dynamic> userData) async {
     try {
-      final querySnapshot = await _estimatesCollection
-          .where('ownerId', isEqualTo: ownerId)
-          .orderBy('submittedAt', descending: true)
+      await _usersCollection.doc(userData['id']).set(userData);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error creating user profile: $e');
+      rethrow;
+    }
+  }
+
+  /// Get job requests for customer
+  Future<List<Map<String, dynamic>>> getJobRequestsForCustomer(String customerId) async {
+    try {
+      final querySnapshot = await _firestore.collection('job_requests')
+          .where('customerId', isEqualTo: customerId)
+          .orderBy('createdAt', descending: true)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
         return data;
       }).toList();
     } catch (e) {
-      throw Exception('Failed to get estimates by status for owner: ${e.toString()}');
+      print('❌ [FirebaseFirestoreService] Error getting job requests for customer: $e');
+      return [];
+    }
+  }
+
+  /// Cancel job request
+  Future<void> cancelJobRequest(String requestId) async {
+    try {
+      await _firestore.collection('job_requests').doc(requestId).update({
+        'status': 'cancelled',
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error cancelling job request: $e');
+      rethrow;
+    }
+  }
+
+  /// Create job request
+  Future<String> createJobRequest(Map<String, dynamic> requestData) async {
+    try {
+      final docRef = await _firestore.collection('job_requests').add(requestData);
+      return docRef.id;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error creating job request: $e');
+      rethrow;
+    }
+  }
+
+  /// Create service professional profile
+  Future<String> createServiceProfessionalProfile(ServiceProfessional professional) async {
+    try {
+      print('🔍 [FirebaseFirestoreService] Creating service professional profile for user: ${professional.userId}');
+      print('🔍 [FirebaseFirestoreService] Professional data: ${professional.toMap()}');
+      
+      // Create the service professional profile using the user ID as the document ID
+      await _serviceProfessionalsCollection.doc(professional.userId).set(professional.toMap());
+      print('✅ [FirebaseFirestoreService] Service professional profile document created');
+      
+      // Update the user's role in the users collection
+      await _usersCollection.doc(professional.userId).update({
+        'role': 'service_professional',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('✅ [FirebaseFirestoreService] User role updated to service_professional');
+      
+      print('✅ [FirebaseFirestoreService] Service professional profile created and user role updated');
+      return professional.userId;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error creating service professional profile: $e');
+      print('❌ [FirebaseFirestoreService] Error details: ${e.toString()}');
+      rethrow;
+    }
+  }
+
+  /// Update estimate status with enum
+  Future<void> updateEstimateStatusWithEnum(String estimateId, String status, {Map<String, dynamic>? additionalData}) async {
+    return updateEstimateStatus(estimateId, status, additionalData: additionalData);
+  }
+
+  /// Update job request status
+  Future<void> updateJobRequestStatus(String requestId, String status, {Map<String, dynamic>? additionalData}) async {
+    try {
+      final updateData = <String, Object>{
+        'status': status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      if (additionalData != null) {
+        updateData.addAll(additionalData.cast<String, Object>());
+      }
+
+      await _firestore.collection('job_requests').doc(requestId).update(updateData);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating job request status: $e');
+      rethrow;
+    }
+  }
+
+  /// Update user role
+  Future<void> updateUserRole(String userId, String role) async {
+    try {
+      await _usersCollection.doc(userId).update({
+        'role': role,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('✅ [FirebaseFirestoreService] User role updated to: $role');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating user role: $e');
+      rethrow;
     }
   }
 }

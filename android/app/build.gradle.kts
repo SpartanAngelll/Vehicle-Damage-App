@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,6 +7,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     // Add the Google services Gradle plugin
     id("com.google.gms.google-services")
+}
+
+// Load local properties for API keys
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
 android {
@@ -15,6 +24,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -30,6 +40,22 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Add Google Maps API key from local.properties
+        val mapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
+        buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$mapsApiKey\"")
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = mapsApiKey
+        
+        // Add OpenAI API key from local.properties
+        val openaiApiKey = localProperties.getProperty("OPENAI_API_KEY") ?: ""
+        buildConfigField("String", "OPENAI_API_KEY", "\"$openaiApiKey\"")
+        
+        // Add multiDex support for better performance
+        multiDexEnabled = true
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
@@ -43,4 +69,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    implementation("androidx.multidex:multidex:2.0.1")
 }

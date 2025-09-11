@@ -258,7 +258,7 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
               children: [
                 _buildInfoRow(context, "Email", userState.email ?? 'N/A'),
                 _buildInfoRow(context, "Phone", userState.phoneNumber ?? 'N/A'),
-                _buildInfoRow(context, "Role", userState.isOwner ? 'Vehicle Owner' : 'Auto Repair Professional'),
+                _buildInfoRow(context, "Role", _getRoleDisplayName(userState)),
                 if (userState.lastLoginTime != null)
                   _buildInfoRow(context, "Last Login", _formatDate(userState.lastLoginTime!)),
                 
@@ -272,6 +272,18 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
         );
       },
     );
+  }
+
+  String _getRoleDisplayName(UserState userState) {
+    if (userState.isOwner) {
+      return 'Service Customer';
+    } else if (userState.isServiceProfessional) {
+      return 'Service Professional';
+    } else if (userState.isRepairman) {
+      return 'Auto Repair Professional';
+    } else {
+      return 'Unknown Role';
+    }
   }
 
   Widget _buildInfoRow(BuildContext context, String label, String value) {

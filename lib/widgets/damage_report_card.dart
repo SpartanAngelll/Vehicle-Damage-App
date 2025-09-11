@@ -519,7 +519,7 @@ class _DamageReportCardState extends State<DamageReportCard> {
                               ),
                             ),
                             Text(
-                              "${estimate.leadTimeDays} days",
+                              estimate.leadTimeDisplay,
                               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                                 fontSize: ResponsiveUtils.getResponsiveFontSize(
                                   context,

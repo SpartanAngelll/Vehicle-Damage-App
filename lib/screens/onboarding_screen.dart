@@ -16,20 +16,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<OnboardingSlide> _slides = [
     OnboardingSlide(
-      title: 'Welcome to Vehicle Damage App',
-      description: 'Easily report vehicle damage and get repair estimates from professionals in your area.',
-      icon: Icons.car_crash,
+      title: 'Welcome to Multi-Service App',
+      description: 'Connect with service professionals across multiple categories - from vehicle repair to beauty services, home maintenance to IT support.',
+      icon: Icons.handshake,
       color: Colors.blue,
     ),
     OnboardingSlide(
-      title: 'For Vehicle Owners',
-      description: 'Take photos of damage, add descriptions, and receive estimates from repair professionals.',
+      title: 'For Service Customers',
+      description: 'Request services across multiple categories, get quotes from qualified professionals, and manage your service needs.',
       icon: Icons.person,
       color: Colors.green,
     ),
     OnboardingSlide(
-      title: 'For Repair Professionals',
-      description: 'View damage reports, submit estimates, and help vehicle owners get back on the road.',
+      title: 'For Service Professionals',
+      description: 'Join our network of professionals across multiple categories - from mechanics to beauticians, plumbers to IT support.',
       icon: Icons.build,
       color: Colors.orange,
     ),

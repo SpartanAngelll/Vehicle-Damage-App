@@ -29,6 +29,7 @@ class ImageUploadWidget extends StatefulWidget {
 
 class _ImageUploadWidgetState extends State<ImageUploadWidget> {
   final List<File> _selectedImages = [];
+  final List<String> _uploadedImageUrls = [];
   bool _isUploading = false;
   double _uploadProgress = 0.0;
   String? _uploadError;
@@ -97,9 +98,9 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
         const SizedBox(height: 16),
         
         // Selected images preview
-        if (_selectedImages.isNotEmpty) ...[
+        if (_selectedImages.isNotEmpty || _uploadedImageUrls.isNotEmpty) ...[
           Text(
-            'Selected Images (${_selectedImages.length}/${widget.maxImages})',
+            'Images (${_selectedImages.length + _uploadedImageUrls.length}/${widget.maxImages})',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
@@ -209,6 +210,8 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
   }
 
   Widget _buildImageGrid() {
+    final totalImages = _selectedImages.length + _uploadedImageUrls.length;
+    
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -218,20 +221,40 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
         mainAxisSpacing: 8,
         childAspectRatio: 1,
       ),
-      itemCount: _selectedImages.length,
+      itemCount: totalImages,
       itemBuilder: (context, index) {
-        final image = _selectedImages[index];
+        // Determine if this is a selected image or uploaded image
+        final isSelectedImage = index < _selectedImages.length;
+        final imageIndex = isSelectedImage ? index : index - _selectedImages.length;
+        
         return Stack(
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.file(
-                image,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-              ),
+              child: isSelectedImage
+                  ? Image.file(
+                      _selectedImages[imageIndex],
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                    )
+                  : Image.network(
+                      _uploadedImageUrls[imageIndex],
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[300],
+                          child: const Icon(
+                            Icons.error,
+                            color: Colors.red,
+                          ),
+                        );
+                      },
+                    ),
             ),
+            // Remove button
             Positioned(
               top: 4,
               right: 4,
@@ -241,7 +264,9 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: IconButton(
-                  onPressed: () => _removeImage(index),
+                  onPressed: () => isSelectedImage 
+                      ? _removeImage(imageIndex)
+                      : _removeUploadedImage(imageIndex),
                   icon: const Icon(
                     Icons.close,
                     color: Colors.white,
@@ -255,26 +280,60 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
                 ),
               ),
             ),
-            Positioned(
-              bottom: 4,
-              left: 4,
-              right: 4,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  ImageService.getFileSizeString(image),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
+            // Upload status indicator
+            if (isSelectedImage)
+              Positioned(
+                bottom: 4,
+                left: 4,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  textAlign: TextAlign.center,
+                  child: Text(
+                    ImageService.getFileSizeString(_selectedImages[imageIndex]),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            else
+              // Uploaded indicator
+              Positioned(
+                bottom: 4,
+                left: 4,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.green[700],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check,
+                        color: Colors.white,
+                        size: 10,
+                      ),
+                      SizedBox(width: 2),
+                      Text(
+                        'Uploaded',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -324,6 +383,13 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
     widget.onImagesSelected(_selectedImages);
   }
 
+  void _removeUploadedImage(int index) {
+    setState(() {
+      _uploadedImageUrls.removeAt(index);
+    });
+    widget.onImagesUploaded(_uploadedImageUrls);
+  }
+
   Future<void> _uploadImages() async {
     if (_selectedImages.isEmpty) return;
 
@@ -334,34 +400,24 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
     });
 
     try {
-      // Simulate upload progress (in real app, this would come from StorageService)
-      for (int i = 0; i < _selectedImages.length; i++) {
-        await Future.delayed(const Duration(milliseconds: 200));
-        setState(() {
-          _uploadProgress = (i + 1) / _selectedImages.length;
-        });
-      }
-
-      // In a real app, you would call StorageService.uploadImages here
-      // For now, we'll simulate successful upload
-      final imageUrls = _selectedImages.map((file) => 'https://example.com/${file.path}').toList();
+      // Upload images to Firebase Storage
+      final imageUrls = await StorageService.uploadServiceRequestImages(
+        requestId: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+        images: _selectedImages,
+        customerId: 'temp_customer', // This will be updated when the actual request is created
+      );
       
-      widget.onImagesUploaded(imageUrls);
-      
+      // Store uploaded URLs and clear selected images
       setState(() {
+        _uploadedImageUrls.addAll(imageUrls);
+        _selectedImages.clear();
         _isUploading = false;
         _uploadProgress = 1.0;
       });
       
-      // Clear selected images after successful upload
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          setState(() {
-            _selectedImages.clear();
-          });
-          widget.onImagesSelected(_selectedImages);
-        }
-      });
+      // Notify parent of changes
+      widget.onImagesUploaded(_uploadedImageUrls);
+      widget.onImagesSelected(_selectedImages);
       
     } catch (e) {
       setState(() {

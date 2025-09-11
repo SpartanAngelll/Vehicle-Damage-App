@@ -5,3 +5,6 @@ export 'repairman_dashboard.dart';
 export 'settings_screen.dart';
 export 'onboarding_screen.dart';
 export 'permission_request_screen.dart';
+export 'service_professional_profile_screen.dart';
+export 'service_request_screen.dart';
+export 'service_professional_registration_screen.dart';
