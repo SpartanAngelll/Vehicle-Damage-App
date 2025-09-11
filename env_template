@@ -1,0 +1,15 @@
+# API Keys Configuration
+# This file contains sensitive information and should NOT be committed to git
+
+# Google Maps API Key
+GOOGLE_MAPS_API_KEY=AIzaSyC6ZVHpACjo5zYtUgB0AmOpx42bETVixMQ
+
+# OpenAI API Key (replace with your actual key)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Firebase Configuration
+FIREBASE_PROJECT_ID=your_project_id
+FIREBASE_API_KEY=your_firebase_api_key
+
+# Database Configuration
+POSTGRES_PASSWORD=#!Startpos12

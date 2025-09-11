@@ -12,6 +12,14 @@
 .swiftpm/
 migrate_working_dir/
 
+# API Keys and Sensitive Files
+android/app/google-services.json
+.env
+.env.local
+.env.production
+.env.staging
+local.properties
+
 # IntelliJ related
 *.iml
 *.ipr
