@@ -19,6 +19,24 @@ android/app/google-services.json
 .env.production
 .env.staging
 local.properties
+GOOGLE_MAPS_SECURITY_FIX.md
+SECURE_API_KEY_SETUP.md
+lib/firebase_options.dart
+lib/firebase_options.template.dart
+
+# Database Configuration Files (contain passwords)
+configure_postgres.ps1
+lib/services/postgres_payment_service.dart
+env_template
+test_connection_fix.dart
+test_postgres_connection.dart
+docker-compose-postgres.yml
+test_payment_workflow.dart
+test_payment_workflow_simple.dart
+check_payments.dart
+test_network_connection.dart
+simple_db_test.dart
+test_db_connection.dart
 
 # IntelliJ related
 *.iml
@@ -52,16 +70,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
- # Firebase configuration files (contain API keys)
-lib/firebase_options.dart
-android/app/google-services.json
+# Firebase configuration files (contain API keys)
 ios/Runner/GoogleService-Info.plist
 web/firebase-config.js
-
-# Environment files
-.env
-.env.local
-.env.production
 
 # Local configuration files
 local.properties

@@ -194,7 +194,7 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
                 SizedBox(height: 16),
               ],
               
-              // Estimate details
+              // Estimate details - Cost, Lead Time, and Submitted horizontally
               Row(
                 children: [
                   Expanded(
@@ -213,13 +213,6 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
                       Icons.schedule,
                     ),
                   ),
-                ],
-              ),
-              
-              SizedBox(height: 8),
-              
-              Row(
-                children: [
                   Expanded(
                     child: _buildDetailItem(
                       context,
@@ -228,16 +221,13 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
                       Icons.access_time,
                     ),
                   ),
-                  Expanded(
-                    child: _buildDescriptionItem(
-                      context,
-                      'Description',
-                      widget.estimate.description,
-                      Icons.description,
-                    ),
-                  ),
                 ],
               ),
+              
+              SizedBox(height: 12),
+              
+              // Description button
+              _buildDescriptionButton(context),
               
               SizedBox(height: 16),
               
@@ -372,39 +362,64 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
     );
   }
 
-  Widget _buildDescriptionItem(BuildContext context, String label, String value, IconData icon) {
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 16,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+  Widget _buildDescriptionButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => _showDescriptionDialog(context),
+        icon: Icon(
+          Icons.description,
+          size: 18,
+          color: Theme.of(context).colorScheme.primary,
         ),
-        SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              SizedBox(
-                height: 20, // Fixed height for the scrolling text
-                child: _buildScrollingText(
-                  context,
-                  value,
-                  Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+        label: Text(
+          'View Description',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.w500,
           ),
         ),
-      ],
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+            width: 1,
+          ),
+          padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDescriptionDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              Icons.description,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            SizedBox(width: 8),
+            Text('Estimate Description'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Text(
+            widget.estimate.description,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 

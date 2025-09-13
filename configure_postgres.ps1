@@ -35,4 +35,4 @@ $env:PGPASSWORD = "#!Startpos12"
 & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -c "SELECT pg_reload_conf();"
 
 Write-Host "PostgreSQL configuration updated!"
-Write-Host "You can now connect from your Android device using IP: 192.168.0.53"
+Write-Host "You can now connect from your Android device using IP: 192.168.0.52"

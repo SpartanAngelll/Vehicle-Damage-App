@@ -104,7 +104,11 @@ class _PlatformMapWidgetState extends State<PlatformMapWidget> {
             if (widget.onTap != null)
               Positioned.fill(
                 child: GestureDetector(
-                  onTap: widget.onTap,
+                  onTap: () {
+                    if (widget.latitude != null && widget.longitude != null) {
+                      widget.onTap!(LatLng(widget.latitude!, widget.longitude!));
+                    }
+                  },
                   child: Container(
                     color: Colors.transparent,
                   ),

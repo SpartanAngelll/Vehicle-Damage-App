@@ -158,6 +158,9 @@ class FirebaseFirestoreService {
       }
 
       await _bookingsCollection.doc(bookingId).update(updateData);
+      
+      // Update service professional's job completion count
+      await _updateProfessionalJobStats(bookingId);
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error marking job completed: $e');
       rethrow;
@@ -173,6 +176,9 @@ class FirebaseFirestoreService {
         'reviewedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      
+      // Update service professional's job completion count
+      await _updateProfessionalJobStats(bookingId);
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error accepting job as completed: $e');
       rethrow;
@@ -742,7 +748,17 @@ class FirebaseFirestoreService {
   /// Create job request
   Future<String> createJobRequest(Map<String, dynamic> requestData) async {
     try {
-      final docRef = await _firestore.collection('job_requests').add(requestData);
+      // Ensure all required fields are present
+      final now = DateTime.now();
+      final completeRequestData = {
+        ...requestData,
+        'status': requestData['status'] ?? 'pending',
+        'createdAt': requestData['createdAt'] ?? Timestamp.fromDate(now),
+        'updatedAt': requestData['updatedAt'] ?? Timestamp.fromDate(now),
+        'tags': requestData['tags'] ?? <String>[],
+      };
+      
+      final docRef = await _firestore.collection('job_requests').add(completeRequestData);
       return docRef.id;
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error creating job request: $e');
@@ -811,6 +827,166 @@ class FirebaseFirestoreService {
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error updating user role: $e');
       rethrow;
+    }
+  }
+
+  /// Get only the statistics data for a professional
+  Future<Map<String, dynamic>?> getProfessionalStats(String professionalId) async {
+    try {
+      print('🔍 [FirebaseFirestoreService] Getting stats for professional: $professionalId');
+      
+      // First, try the service_professionals collection
+      var doc = await _serviceProfessionalsCollection.doc(professionalId).get();
+      print('🔍 [FirebaseFirestoreService] service_professionals collection - Document exists: ${doc.exists}');
+      
+      if (!doc.exists) {
+        // Try the users collection (in case the data is stored there with role field)
+        print('🔍 [FirebaseFirestoreService] Trying users collection...');
+        doc = await _usersCollection.doc(professionalId).get();
+        print('🔍 [FirebaseFirestoreService] users collection - Document exists: ${doc.exists}');
+        
+        if (!doc.exists) {
+          // Try the professionals collection (alternative naming)
+          print('🔍 [FirebaseFirestoreService] Trying professionals collection...');
+          doc = await _firestore.collection('professionals').doc(professionalId).get();
+          print('🔍 [FirebaseFirestoreService] professionals collection - Document exists: ${doc.exists}');
+        }
+      }
+      
+      if (!doc.exists) {
+        print('❌ [FirebaseFirestoreService] Professional document not found: $professionalId');
+        return null;
+      }
+      
+      final data = doc.data() as Map<String, dynamic>;
+      print('🔍 [FirebaseFirestoreService] Found document with fields: ${data.keys.toList()}');
+      
+      return {
+        'jobsCompleted': data['jobsCompleted'] ?? 0,
+        'averageRating': (data['averageRating'] as num?)?.toDouble() ?? 0.0,
+        'totalReviews': data['totalReviews'] ?? 0,
+      };
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting professional stats: $e');
+      return null;
+    }
+  }
+
+  /// Refresh service professional job statistics (public method)
+  Future<void> refreshProfessionalJobStats(String professionalId) async {
+    try {
+      print('🔍 [FirebaseFirestoreService] Refreshing job stats for professional: $professionalId');
+      
+      // Count completed jobs for this professional
+      final completedJobsQuery = await _bookingsCollection
+          .where('professionalId', isEqualTo: professionalId)
+          .where('status', isEqualTo: 'reviewed')
+          .get();
+
+      final completedJobsCount = completedJobsQuery.docs.length;
+      print('🔍 [FirebaseFirestoreService] Found $completedJobsCount completed jobs');
+
+      // Get rating statistics
+      final reviewsQuery = await _firestore.collection('reviews')
+          .where('professionalId', isEqualTo: professionalId)
+          .get();
+
+      double averageRating = 0.0;
+      int totalReviews = reviewsQuery.docs.length;
+      print('🔍 [FirebaseFirestoreService] Found $totalReviews reviews');
+
+      if (totalReviews > 0) {
+        double totalRating = 0.0;
+        for (final reviewDoc in reviewsQuery.docs) {
+          final reviewData = reviewDoc.data() as Map<String, dynamic>;
+          final rating = (reviewData['rating'] as num).toDouble();
+          totalRating += rating;
+          print('🔍 [FirebaseFirestoreService] Review rating: $rating');
+        }
+        averageRating = totalRating / totalReviews;
+        print('🔍 [FirebaseFirestoreService] Calculated average rating: ${averageRating.toStringAsFixed(1)}');
+      }
+
+      // Update professional statistics
+      print('🔍 [FirebaseFirestoreService] Updating professional document with stats...');
+      await _serviceProfessionalsCollection.doc(professionalId).update({
+        'jobsCompleted': completedJobsCount,
+        'averageRating': averageRating,
+        'totalReviews': totalReviews,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      print('✅ [FirebaseFirestoreService] Refreshed professional stats - Jobs: $completedJobsCount, Rating: ${averageRating.toStringAsFixed(1)}, Reviews: $totalReviews');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error refreshing professional job stats: $e');
+      rethrow;
+    }
+  }
+
+  /// Update service professional job statistics
+  Future<void> _updateProfessionalJobStats(String bookingId) async {
+    try {
+      // Get booking details
+      final bookingDoc = await _bookingsCollection.doc(bookingId).get();
+      if (!bookingDoc.exists) {
+        print('❌ [FirebaseFirestoreService] Booking not found: $bookingId');
+        return;
+      }
+
+      final bookingData = bookingDoc.data() as Map<String, dynamic>;
+      final professionalId = bookingData['professionalId'] as String?;
+      
+      if (professionalId == null) {
+        print('❌ [FirebaseFirestoreService] No professional ID found in booking: $bookingId');
+        return;
+      }
+
+      // Get current professional data
+      final professionalDoc = await _serviceProfessionalsCollection.doc(professionalId).get();
+      if (!professionalDoc.exists) {
+        print('❌ [FirebaseFirestoreService] Professional not found: $professionalId');
+        return;
+      }
+
+      final professionalData = professionalDoc.data() as Map<String, dynamic>;
+      
+      // Count completed jobs for this professional
+      final completedJobsQuery = await _bookingsCollection
+          .where('professionalId', isEqualTo: professionalId)
+          .where('status', isEqualTo: 'reviewed')
+          .get();
+
+      final completedJobsCount = completedJobsQuery.docs.length;
+
+      // Get rating statistics
+      final reviewsQuery = await _firestore.collection('reviews')
+          .where('professionalId', isEqualTo: professionalId)
+          .get();
+
+      double averageRating = 0.0;
+      int totalReviews = reviewsQuery.docs.length;
+
+      if (totalReviews > 0) {
+        double totalRating = 0.0;
+        for (final reviewDoc in reviewsQuery.docs) {
+          final reviewData = reviewDoc.data() as Map<String, dynamic>;
+          totalRating += (reviewData['rating'] as num).toDouble();
+        }
+        averageRating = totalRating / totalReviews;
+      }
+
+      // Update professional statistics
+      await _serviceProfessionalsCollection.doc(professionalId).update({
+        'jobsCompleted': completedJobsCount,
+        'averageRating': averageRating,
+        'totalReviews': totalReviews,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      print('✅ [FirebaseFirestoreService] Updated professional stats - Jobs: $completedJobsCount, Rating: ${averageRating.toStringAsFixed(1)}, Reviews: $totalReviews');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating professional job stats: $e');
+      // Don't rethrow to avoid breaking the main job completion flow
     }
   }
 }

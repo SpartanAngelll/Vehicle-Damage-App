@@ -483,6 +483,8 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
 
     print('🔍 [BookingStatusActions] Showing review dialog for booking: ${widget.booking.id}');
     
+    // Debug logging removed - issue was fixed
+    
     // Show review dialog for customer to rate professional
     await ReviewSubmissionDialog.show(
       context,

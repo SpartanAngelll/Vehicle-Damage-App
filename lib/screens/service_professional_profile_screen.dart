@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../widgets/map_picker_widget.dart';
 import '../widgets/embedded_map_widget.dart';
 import '../widgets/cached_image_widget.dart';
+import '../widgets/horizontal_ratings_widget.dart';
 import '../screens/reviews_screen.dart';
 
 class ServiceProfessionalProfileScreen extends StatefulWidget {
@@ -33,6 +34,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
   bool _isLoading = true;
   bool _isEditing = false;
   bool _isCurrentUser = false;
+  bool _isRefreshingStats = false;
   
   // Form controllers for editing
   final TextEditingController _bioController = TextEditingController();
@@ -51,6 +53,17 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
   void initState() {
     super.initState();
     _loadProfile();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh profile when returning to this screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_professional != null) {
+        _refreshProfileStats();
+      }
+    });
   }
   
   @override
@@ -79,24 +92,38 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
       print('🔍 [ProfileScreen] UserState.isAuthenticated: ${userState.isAuthenticated}');
       print('🔍 [ProfileScreen] UserState.role: ${userState.role}');
       
+      String professionalId;
       if (widget.professionalId != null) {
         // Loading another professional's profile
         _isCurrentUser = widget.professionalId == currentUserId;
-        print('🔍 [ProfileScreen] Loading another professional\'s profile: ${widget.professionalId}');
-        _professional = await _firestoreService.getServiceProfessional(widget.professionalId!);
+        professionalId = widget.professionalId!;
+        print('🔍 [ProfileScreen] Loading another professional\'s profile: $professionalId');
       } else if (currentUserId != null) {
         // Loading current user's profile
         _isCurrentUser = true;
-        print('🔍 [ProfileScreen] Loading current user\'s profile: $currentUserId');
-        _professional = await _firestoreService.getServiceProfessional(currentUserId);
+        professionalId = currentUserId;
+        print('🔍 [ProfileScreen] Loading current user\'s profile: $professionalId');
       } else {
         print('❌ [ProfileScreen] No user ID available for profile loading');
         throw Exception('No user ID available for profile loading');
       }
       
+      // Refresh professional statistics before loading profile
+      try {
+        await _firestoreService.refreshProfessionalJobStats(professionalId);
+        print('✅ [ProfileScreen] Professional statistics refreshed');
+      } catch (e) {
+        print('⚠️ [ProfileScreen] Could not refresh professional statistics: $e');
+        // Continue loading profile even if stats refresh fails
+      }
+      
+      // Load the professional profile
+      _professional = await _firestoreService.getServiceProfessional(professionalId);
+      
       print('🔍 [ProfileScreen] Profile loaded: ${_professional != null ? 'SUCCESS' : 'FAILED'}');
       if (_professional != null) {
         print('🔍 [ProfileScreen] Professional data: fullName="${_professional!.fullName}", email="${_professional!.email}", Role: ${_professional!.categoryIds}');
+        print('🔍 [ProfileScreen] Job stats - Completed: ${_professional!.jobsCompleted}, Rating: ${_professional!.averageRating}, Reviews: ${_professional!.totalReviews}');
         _bioController.text = _professional!.bio ?? '';
         _locationController.text = _professional!.serviceAreas.isNotEmpty 
             ? _professional!.serviceAreas.first 
@@ -959,8 +986,10 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
     }
     
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
+      body: RefreshIndicator(
+        onRefresh: _refreshProfileStats,
+        child: CustomScrollView(
+          slivers: [
           // Custom App Bar
           SliverAppBar(
             expandedHeight: 200,
@@ -1160,6 +1189,20 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
             actions: [
               if (_isCurrentUser) ...[
                 IconButton(
+                  icon: _isRefreshingStats 
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.refresh),
+                  onPressed: _isRefreshingStats ? null : _refreshProfileStats,
+                  tooltip: 'Refresh Statistics',
+                ),
+                IconButton(
                   icon: const Icon(Icons.photo_camera),
                   onPressed: _uploadCoverPhoto,
                   tooltip: 'Upload Cover Photo',
@@ -1203,6 +1246,34 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                     ],
                   ),
                 ),
+                
+                // Refresh indicator
+                if (_isRefreshingStats)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Refreshing statistics...',
+                          style: TextStyle(
+                            color: AppTheme.primaryColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 
                 // Profile Sections
                 Padding(
@@ -1258,38 +1329,6 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                         isEditable: _isEditing && _isCurrentUser,
                         controller: _websiteController,
                       ),
-                      _buildProfileSection(
-                        'Ratings',
-                        '',
-                        Icons.star,
-                        customWidget: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildStarRating(_professional!.averageRating),
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => ReviewsScreen(
-                                      professionalId: _professional!.id,
-                                      professionalName: _professional!.fullName,
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.rate_review, size: 16),
-                              label: const Text('View Reviews'),
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1308,13 +1347,110 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                 const SizedBox(height: 20),
                 _buildLocationSection(),
                 
+                // Ratings Section
+                const SizedBox(height: 20),
+                HorizontalRatingsWidget(
+                  professionalId: _professional!.id,
+                  professionalName: _professional!.fullName,
+                ),
+                
                 const SizedBox(height: 40),
               ],
             ),
           ),
         ],
+        ),
       ),
     );
+  }
+
+  Future<void> _refreshProfileStats() async {
+    if (_professional == null || _isRefreshingStats) return;
+    
+    setState(() {
+      _isRefreshingStats = true;
+    });
+    
+    try {
+      print('🔍 [ProfileScreen] Refreshing profile stats for professional: ${_professional!.id}');
+      print('🔍 [ProfileScreen] Current stats - Jobs: ${_professional!.jobsCompleted}, Rating: ${_professional!.averageRating}, Reviews: ${_professional!.totalReviews}');
+      
+      // Store current profile data to preserve it
+      final currentProfilePhotoUrl = _professional!.profilePhotoUrl;
+      final currentCoverPhotoUrl = _professional!.coverPhotoUrl;
+      final currentWorkShowcaseImages = List<String>.from(_professional!.workShowcaseImages);
+      final currentLatitude = _professional!.latitude;
+      final currentLongitude = _professional!.longitude;
+      final currentAddress = _professional!.address;
+      
+      // Refresh professional statistics
+      await _firestoreService.refreshProfessionalJobStats(_professional!.id);
+      print('✅ [ProfileScreen] Professional statistics refresh completed');
+      
+      // Reload the complete professional data to get updated stats
+      final updatedProfessional = await _firestoreService.getServiceProfessional(_professional!.id);
+      
+      if (updatedProfessional != null) {
+        print('🔍 [ProfileScreen] Updated professional data - Jobs: ${updatedProfessional.jobsCompleted}, Rating: ${updatedProfessional.averageRating}, Reviews: ${updatedProfessional.totalReviews}');
+        
+        // Update the professional with new stats but preserve the current profile data
+        setState(() {
+          _professional = updatedProfessional.copyWith(
+            // Preserve profile data
+            profilePhotoUrl: currentProfilePhotoUrl,
+            coverPhotoUrl: currentCoverPhotoUrl,
+            workShowcaseImages: currentWorkShowcaseImages,
+            latitude: currentLatitude,
+            longitude: currentLongitude,
+            address: currentAddress,
+          );
+        });
+        
+        // Update the local state variables
+        _coverPhotoUrl = currentCoverPhotoUrl;
+        _workShowcaseImages = currentWorkShowcaseImages;
+        
+        print('✅ [ProfileScreen] Profile statistics refreshed - Jobs: ${_professional!.jobsCompleted}, Rating: ${_professional!.averageRating}');
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Statistics refreshed successfully!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        print('❌ [ProfileScreen] Failed to reload professional data after refresh');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to refresh statistics'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ [ProfileScreen] Error refreshing profile stats: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error refreshing statistics: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshingStats = false;
+        });
+      }
+    }
   }
   
   Widget _buildStatItem(String value, String label) {
@@ -1752,8 +1888,6 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
               );
             },
           ),
-          
-
         ],
       ),
     );

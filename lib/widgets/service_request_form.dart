@@ -93,6 +93,9 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
     _categoryControllers['it_support'] = TextEditingController(); // Device type
     _categoryControllers['security_systems'] = TextEditingController(); // System type
     _categoryControllers['glass_windows'] = TextEditingController(); // Material type
+    
+    // Set default priority
+    _priorityController.text = 'Medium';
   }
 
   @override
@@ -942,6 +945,7 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
       _buildCustomFields();
 
       // Create job request in Firestore
+      final now = DateTime.now();
       final requestId = await firestoreService.createJobRequest({
         'customerId': userState.userId!,
         'customerEmail': userState.email ?? '',
@@ -953,6 +957,10 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
         'priority': _getJobPriority(_priorityController.text).name,
         'customFields': _customFields,
         'imageUrls': _uploadedImageUrls,
+        'status': 'pending',
+        'createdAt': now,
+        'updatedAt': now,
+        'tags': <String>[],
       });
 
       // Create JobRequest object
@@ -1065,7 +1073,7 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
     _descriptionController.clear();
     _budgetController.clear();
     _locationController.clear();
-    _priorityController.clear();
+    _priorityController.text = 'Medium'; // Reset to default priority
     
     // Clear category controllers
     for (final controller in _categoryControllers.values) {

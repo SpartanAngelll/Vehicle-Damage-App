@@ -86,6 +86,8 @@ class _ReviewSubmissionDialogState extends State<ReviewSubmissionDialog> {
 
     try {
       if (widget.reviewType == ReviewType.customerToProfessional) {
+        // Debug logging removed - issue was fixed
+        
         await _reviewService.submitCustomerReview(
           bookingId: widget.bookingId,
           customerId: widget.reviewerId,

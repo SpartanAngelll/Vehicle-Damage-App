@@ -387,13 +387,13 @@ class ServiceRequestCard extends StatelessWidget {
   Color _getPriorityColor(JobPriority priority) {
     switch (priority) {
       case JobPriority.low:
-        return Colors.green;
+        return Colors.green.shade600;
       case JobPriority.medium:
-        return Colors.orange;
+        return Colors.orange.shade600;
       case JobPriority.high:
-        return Colors.red;
+        return Colors.red.shade600;
       case JobPriority.urgent:
-        return Colors.purple;
+        return Colors.deepPurple.shade600;
     }
   }
 
@@ -451,7 +451,7 @@ class ServiceRequestCard extends StatelessWidget {
 
   String _formatFieldName(String fieldName) {
     return fieldName
-        .replaceAll(RegExp(r'([A-Z])'), ' \$1')
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
         .trim()
         .split(' ')
         .map((word) => word.isNotEmpty ? word[0].toUpperCase() + word.substring(1) : '')
