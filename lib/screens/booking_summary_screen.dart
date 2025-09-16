@@ -45,32 +45,44 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     });
 
     try {
-      final bookingData = {
-        'id': widget.bookingId,
-        'chatRoomId': widget.chatRoom.id,
-        'estimateId': widget.jobSummary.estimateId,
-        'customerId': widget.jobSummary.customerId,
-        'professionalId': widget.jobSummary.professionalId,
-        'serviceName': widget.jobSummary.rawAnalysis?['service'] ?? 'Service Request',
-        'serviceDescription': widget.jobSummary.conversationSummary,
-        'date': widget.jobSummary.extractedStartTime?.toIso8601String(),
-        'time': widget.jobSummary.extractedStartTime?.toIso8601String(),
-        'endTime': widget.jobSummary.extractedEndTime?.toIso8601String(),
-        'price': widget.jobSummary.extractedPrice,
-        'currency': widget.jobSummary.rawAnalysis?['currency'] ?? 'JMD',
-        'location': widget.jobSummary.extractedLocation ?? 'To be confirmed',
-        'deliverables': widget.jobSummary.extractedDeliverables,
-        'importantPoints': widget.jobSummary.extractedImportantPoints,
-        'status': 'confirmed',
-        'confidenceScore': widget.jobSummary.confidenceScore,
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
-        'rawAnalysis': widget.jobSummary.rawAnalysis,
-        'finalTravelMode': widget.jobSummary.finalTravelMode?.name,
-        'customerAddress': widget.jobSummary.customerAddress,
-        'shopAddress': widget.jobSummary.shopAddress,
-        'travelFee': widget.jobSummary.travelFee,
-      };
+      // Check if booking already exists in Firebase
+      final existingBooking = await _firestoreService.getBookingById(widget.bookingId);
+      
+      if (existingBooking != null) {
+        // Booking already exists, just update the status
+        final bookingStatus = await _determineBookingStatus();
+        await _firestoreService.updateBookingStatus(widget.bookingId, bookingStatus);
+        print('✅ [BookingSummary] Updated existing booking status: $bookingStatus');
+      } else {
+        // Determine the correct booking status
+        final bookingStatus = await _determineBookingStatus();
+        
+        final bookingData = {
+          'id': widget.bookingId,
+          'chatRoomId': widget.chatRoom.id,
+          'estimateId': widget.jobSummary.estimateId,
+          'customerId': widget.jobSummary.customerId,
+          'professionalId': widget.jobSummary.professionalId,
+          'serviceName': widget.jobSummary.rawAnalysis?['service'] ?? 'Service Request',
+          'serviceDescription': widget.jobSummary.conversationSummary,
+          'date': widget.jobSummary.extractedStartTime?.toIso8601String(),
+          'time': widget.jobSummary.extractedStartTime?.toIso8601String(),
+          'endTime': widget.jobSummary.extractedEndTime?.toIso8601String(),
+          'price': widget.jobSummary.extractedPrice,
+          'currency': widget.jobSummary.rawAnalysis?['currency'] ?? 'JMD',
+          'location': widget.jobSummary.extractedLocation ?? 'To be confirmed',
+          'deliverables': widget.jobSummary.extractedDeliverables,
+          'importantPoints': widget.jobSummary.extractedImportantPoints,
+          'status': bookingStatus,
+          'confidenceScore': widget.jobSummary.confidenceScore,
+          'createdAt': DateTime.now().toIso8601String(),
+          'updatedAt': DateTime.now().toIso8601String(),
+          'rawAnalysis': widget.jobSummary.rawAnalysis,
+          'finalTravelMode': widget.jobSummary.finalTravelMode?.name,
+          'customerAddress': widget.jobSummary.customerAddress,
+          'shopAddress': widget.jobSummary.shopAddress,
+          'travelFee': widget.jobSummary.travelFee,
+        };
 
       // Debug logging
       print('🔍 [BookingSummary] Saving booking data: $bookingData');
@@ -92,6 +104,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           ),
         );
       }
+      }
     } catch (e) {
       print('❌ [BookingSummary] Error saving booking: $e');
       if (mounted) {
@@ -108,6 +121,31 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           _isSaving = false;
         });
       }
+    }
+  }
+
+  /// Determine the correct booking status based on job completion and review status
+  Future<String> _determineBookingStatus() async {
+    try {
+      // Check if the job has been completed
+      final isJobCompleted = await _firestoreService.isJobCompleted(widget.bookingId);
+      
+      if (isJobCompleted) {
+        // Check if the job has been reviewed (accepted as completed by customer)
+        final isJobReviewed = await _firestoreService.isJobReviewed(widget.bookingId);
+        
+        if (isJobReviewed) {
+          return 'reviewed'; // Purple status - job completed and reviewed
+        } else {
+          return 'completed'; // Green status - job completed but not yet reviewed
+        }
+      } else {
+        return 'confirmed'; // Green status - job confirmed but not completed
+      }
+    } catch (e) {
+      print('❌ [BookingSummary] Error determining booking status: $e');
+      // Default to confirmed if there's an error
+      return 'confirmed';
     }
   }
 

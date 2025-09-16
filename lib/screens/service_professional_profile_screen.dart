@@ -14,6 +14,9 @@ import '../widgets/embedded_map_widget.dart';
 import '../widgets/cached_image_widget.dart';
 import '../widgets/horizontal_ratings_widget.dart';
 import '../screens/reviews_screen.dart';
+import '../screens/cashout_screen.dart';
+import '../services/payout_service.dart';
+import '../models/payout_models.dart';
 
 class ServiceProfessionalProfileScreen extends StatefulWidget {
   final String? professionalId; // If null, shows current user's profile
@@ -29,8 +32,10 @@ class ServiceProfessionalProfileScreen extends StatefulWidget {
 
 class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalProfileScreen> {
   final FirebaseFirestoreService _firestoreService = FirebaseFirestoreService();
+  final PayoutService _payoutService = PayoutService.instance;
   
   ServiceProfessional? _professional;
+  ProfessionalBalance? _balance;
   bool _isLoading = true;
   bool _isEditing = false;
   bool _isCurrentUser = false;
@@ -53,6 +58,21 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
   void initState() {
     super.initState();
     _loadProfile();
+  }
+
+  Future<void> _loadBalance() async {
+    if (_professional == null || !_isCurrentUser) return;
+    
+    try {
+      final balance = await _payoutService.getProfessionalBalance(_professional!.id);
+      if (mounted) {
+        setState(() {
+          _balance = balance;
+        });
+      }
+    } catch (e) {
+      print('❌ [ProfileScreen] Error loading balance: $e');
+    }
   }
 
   @override
@@ -133,10 +153,11 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
         _businessPhoneController.text = _professional!.businessPhone ?? '';
         _websiteController.text = _professional!.website ?? '';
         
-        // Load cover photo and work showcase images in parallel
+        // Load cover photo, work showcase images, and balance in parallel
         await Future.wait([
           _loadCoverPhoto(),
           _loadWorkShowcaseImages(),
+          _loadBalance(),
         ]);
       } else {
         print('❌ [ProfileScreen] No professional profile found for user: $currentUserId');
@@ -765,6 +786,8 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
     );
   }
 
+
+
   // Show add dialog for certifications and specialties
   void _showAddDialog(String title, String hint, Function(String) onAdd) {
     final controller = TextEditingController();
@@ -1186,6 +1209,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                 ),
               ),
             ),
+            leading: null,
             actions: [
               if (_isCurrentUser) ...[
                 IconButton(
@@ -1409,6 +1433,9 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
         // Update the local state variables
         _coverPhotoUrl = currentCoverPhotoUrl;
         _workShowcaseImages = currentWorkShowcaseImages;
+        
+        // Refresh balance after profile refresh
+        _loadBalance();
         
         print('✅ [ProfileScreen] Profile statistics refreshed - Jobs: ${_professional!.jobsCompleted}, Rating: ${_professional!.averageRating}');
         

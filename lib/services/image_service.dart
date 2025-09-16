@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'storage_service.dart';
 import 'package:image/image.dart' as img;
+import '../models/image_quality.dart';
 
 class ImageService {
   static final ImagePicker _picker = ImagePicker();
@@ -235,26 +236,3 @@ class ImageService {
   }
 }
 
-// Image quality enum
-enum ImageQuality {
-  low,
-  medium,
-  high,
-  original,
-}
-
-// Extension for ImageQuality
-extension ImageQualityExtension on ImageQuality {
-  String get displayName {
-    switch (this) {
-      case ImageQuality.low:
-        return 'Low';
-      case ImageQuality.medium:
-        return 'Medium';
-      case ImageQuality.high:
-        return 'High';
-      case ImageQuality.original:
-        return 'Original';
-    }
-  }
-}

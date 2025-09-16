@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/image_service.dart';
 import '../services/storage_service.dart';
+import '../models/image_quality.dart';
 
 class ImageUploadWidget extends StatefulWidget {
   final Function(List<String>) onImagesUploaded;

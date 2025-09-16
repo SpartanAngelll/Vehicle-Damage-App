@@ -90,4 +90,14 @@ class ResponsiveUtils {
     if (isTablet(context)) return tablet;
     return desktop;
   }
+
+  static double getResponsiveWidth(BuildContext context, {
+    double mobile = 400.0,
+    double tablet = 500.0,
+    double desktop = 600.0,
+  }) {
+    if (isMobile(context)) return mobile;
+    if (isTablet(context)) return tablet;
+    return desktop;
+  }
 }

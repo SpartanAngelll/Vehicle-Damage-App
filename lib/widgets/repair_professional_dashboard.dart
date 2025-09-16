@@ -11,8 +11,10 @@ import '../services/chat_service.dart';
 import '../screens/service_professional_profile_screen.dart';
 import '../screens/chat_screen.dart';
 import '../screens/my_bookings_screen.dart';
+import '../screens/cashout_screen.dart';
 import 'glow_card.dart';
 import 'time_picker_widget.dart';
+import 'balances_button.dart';
 
 class RepairProfessionalDashboard extends StatefulWidget {
   const RepairProfessionalDashboard({super.key});
@@ -47,6 +49,17 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: Consumer<UserState>(
+          builder: (context, userState, child) {
+            if (userState.isAuthenticated && userState.userId != null) {
+              return CompactBalancesButton(
+                professionalId: userState.userId!,
+                onPressed: () => _navigateToCashOut(userState.userId!),
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
         title: Text(
           _getAppBarTitle(),
           style: TextStyle(
@@ -783,6 +796,17 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
         ],
       ),
     ));
+  }
+
+  void _navigateToCashOut(String professionalId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CashOutScreen(
+          professionalId: professionalId,
+        ),
+      ),
+    );
   }
 
   void _showLogoutDialog(BuildContext context) {

@@ -195,6 +195,54 @@ class FirebaseFirestoreService {
     }
   }
 
+  /// Check if a job has been completed
+  Future<bool> isJobCompleted(String bookingId) async {
+    try {
+      final doc = await _bookingsCollection.doc(bookingId).get();
+      if (!doc.exists) return false;
+      
+      final data = doc.data() as Map<String, dynamic>;
+      final status = data['status'] as String?;
+      
+      return status == 'completed' || status == 'reviewed';
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error checking job completion: $e');
+      return false;
+    }
+  }
+
+  /// Check if a job has been reviewed (accepted as completed by customer)
+  Future<bool> isJobReviewed(String bookingId) async {
+    try {
+      final doc = await _bookingsCollection.doc(bookingId).get();
+      if (!doc.exists) return false;
+      
+      final data = doc.data() as Map<String, dynamic>;
+      final status = data['status'] as String?;
+      
+      return status == 'reviewed';
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error checking job review status: $e');
+      return false;
+    }
+  }
+
+  /// Get booking by ID
+  Future<Map<String, dynamic>?> getBookingById(String bookingId) async {
+    try {
+      final doc = await _bookingsCollection.doc(bookingId).get();
+      if (!doc.exists) return null;
+      
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting booking by ID: $e');
+      return null;
+    }
+  }
+
+
   /// Get user profile
   Future<Map<String, dynamic>?> getUserProfile(String userId) async {
     try {
@@ -424,7 +472,18 @@ class FirebaseFirestoreService {
       }
 
       if (additionalData != null) {
-        updateData.addAll(additionalData.cast<String, Object>());
+        // Filter out null values and ensure proper types for Firestore
+        final filteredData = <String, Object>{};
+        additionalData.forEach((key, value) {
+          if (value != null) {
+            if (value is DateTime) {
+              filteredData[key] = Timestamp.fromDate(value);
+            } else {
+              filteredData[key] = value as Object;
+            }
+          }
+        });
+        updateData.addAll(filteredData);
       }
 
       await _estimatesCollection.doc(estimateId).update(updateData);
@@ -585,7 +644,18 @@ class FirebaseFirestoreService {
       };
       
       if (additionalData != null) {
-        updateData.addAll(additionalData.cast<String, Object>());
+        // Filter out null values and ensure proper types for Firestore
+        final filteredData = <String, Object>{};
+        additionalData.forEach((key, value) {
+          if (value != null) {
+            if (value is DateTime) {
+              filteredData[key] = Timestamp.fromDate(value);
+            } else {
+              filteredData[key] = value as Object;
+            }
+          }
+        });
+        updateData.addAll(filteredData);
       }
 
       await _bookingsCollection.doc(bookingId).update(updateData);
@@ -646,13 +716,25 @@ class FirebaseFirestoreService {
     List<String> imageUrls = const [],
   }) async {
     try {
+      // Get the job request to find the customer ID
+      final jobRequestData = await getJobRequest(jobRequestId);
+      if (jobRequestData == null) {
+        throw Exception('Job request not found: $jobRequestId');
+      }
+      
+      final customerId = jobRequestData['customerId'] as String?;
+      if (customerId == null) {
+        throw Exception('Job request missing customerId: $jobRequestId');
+      }
+
       final docRef = await _estimatesCollection.add({
         'jobRequestId': jobRequestId,
+        'ownerId': customerId, // Add ownerId so customers can see the estimate
         'professionalId': professionalId,
         'professionalEmail': professionalEmail,
         'professionalBio': professionalBio,
         'cost': cost,
-        'leadTimeDays': leadTimeDays,
+        'leadTimeDays': leadTimeDays, // Store as minutes (new format)
         'description': description,
         'imageUrls': imageUrls,
         'status': 'pending',
@@ -806,7 +888,18 @@ class FirebaseFirestoreService {
       };
       
       if (additionalData != null) {
-        updateData.addAll(additionalData.cast<String, Object>());
+        // Filter out null values and ensure proper types for Firestore
+        final filteredData = <String, Object>{};
+        additionalData.forEach((key, value) {
+          if (value != null) {
+            if (value is DateTime) {
+              filteredData[key] = Timestamp.fromDate(value);
+            } else {
+              filteredData[key] = value as Object;
+            }
+          }
+        });
+        updateData.addAll(filteredData);
       }
 
       await _firestore.collection('job_requests').doc(requestId).update(updateData);
@@ -988,5 +1081,159 @@ class FirebaseFirestoreService {
       print('❌ [FirebaseFirestoreService] Error updating professional job stats: $e');
       // Don't rethrow to avoid breaking the main job completion flow
     }
+  }
+
+  /// Get professional balance from Firebase
+  Future<Map<String, dynamic>?> getProfessionalBalance(String professionalId) async {
+    try {
+      final doc = await _firestore.collection('professional_balances').doc(professionalId).get();
+      
+      if (!doc.exists) {
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting professional balance: $e');
+      return null;
+    }
+  }
+
+  /// Update professional balance in Firebase
+  Future<void> updateProfessionalBalance(String professionalId, Map<String, dynamic> balanceData) async {
+    try {
+      await _firestore.collection('professional_balances').doc(professionalId).set({
+        ...balanceData,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      });
+      print('✅ [FirebaseFirestoreService] Updated professional balance: $professionalId');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating professional balance: $e');
+      rethrow;
+    }
+  }
+
+  /// Get all professional balances from Firebase
+  Future<List<Map<String, dynamic>>> getAllProfessionalBalances() async {
+    try {
+      final querySnapshot = await _firestore.collection('professional_balances').get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting all professional balances: $e');
+      return [];
+    }
+  }
+
+  /// Get payout history from Firebase
+  Future<List<Map<String, dynamic>>> getPayoutHistory(String professionalId, {int? limit}) async {
+    try {
+      Query query = _firestore
+          .collection('payouts')
+          .where('professionalId', isEqualTo: professionalId)
+          .orderBy('createdAt', descending: true);
+
+      if (limit != null) {
+        query = query.limit(limit);
+      }
+
+      final querySnapshot = await query.get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting payout history: $e');
+      return [];
+    }
+  }
+
+  /// Get payout by ID from Firebase
+  Future<Map<String, dynamic>?> getPayoutById(String payoutId) async {
+    try {
+      final doc = await _firestore.collection('payouts').doc(payoutId).get();
+      
+      if (!doc.exists) {
+        return null;
+      }
+
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error getting payout by ID: $e');
+      return null;
+    }
+  }
+
+  /// Update payout status in Firebase
+  Future<void> updatePayoutStatus(String payoutId, String status, {Map<String, dynamic>? additionalData}) async {
+    try {
+      final updateData = <String, Object>{
+        'status': status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (status == 'success' || status == 'failed') {
+        updateData['completedAt'] = FieldValue.serverTimestamp();
+      }
+
+      if (additionalData != null) {
+        // Filter out null values and ensure proper types for Firestore
+        final filteredData = <String, Object>{};
+        additionalData.forEach((key, value) {
+          if (value != null) {
+            if (value is DateTime) {
+              filteredData[key] = Timestamp.fromDate(value);
+            } else {
+              filteredData[key] = value as Object;
+            }
+          }
+        });
+        updateData.addAll(filteredData);
+      }
+
+      await _firestore.collection('payouts').doc(payoutId).update(updateData);
+      print('✅ [FirebaseFirestoreService] Updated payout status: $payoutId -> $status');
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating payout status: $e');
+      rethrow;
+    }
+  }
+
+  /// Get payout stream for real-time updates
+  Stream<List<Map<String, dynamic>>> getPayoutsStream(String professionalId) {
+    return _firestore
+        .collection('payouts')
+        .where('professionalId', isEqualTo: professionalId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          data['id'] = doc.id;
+          return data;
+        }).toList());
+  }
+
+  /// Get professional balance stream for real-time updates
+  Stream<Map<String, dynamic>?> getProfessionalBalanceStream(String professionalId) {
+    return _firestore
+        .collection('professional_balances')
+        .doc(professionalId)
+        .snapshots()
+        .map((snapshot) {
+          if (!snapshot.exists) return null;
+          final data = snapshot.data() as Map<String, dynamic>;
+          data['id'] = snapshot.id;
+          return data;
+        });
   }
 }

@@ -6,17 +6,20 @@ import '../models/payment_models.dart';
 import '../models/booking_models.dart';
 import 'postgres_payment_service.dart';
 import 'firebase_firestore_service.dart';
+import 'payout_service.dart';
 
 class PaymentWorkflowService {
   static PaymentWorkflowService? _instance;
   final PostgresPaymentService _postgresService;
   final FirebaseFirestoreService _firestoreService;
   final FirebaseFirestore _firestore;
+  final PayoutService _payoutService;
 
   PaymentWorkflowService._()
       : _postgresService = PostgresPaymentService.instance,
         _firestoreService = FirebaseFirestoreService(),
-        _firestore = FirebaseFirestore.instance;
+        _firestore = FirebaseFirestore.instance,
+        _payoutService = PayoutService.instance;
 
   static PaymentWorkflowService get instance {
     _instance ??= PaymentWorkflowService._();
@@ -25,6 +28,7 @@ class PaymentWorkflowService {
 
   Future<void> initialize() async {
     await _postgresService.initialize();
+    await _payoutService.initialize();
     print('✅ [PaymentWorkflow] Payment Workflow Service initialized');
   }
 
@@ -130,6 +134,17 @@ class PaymentWorkflowService {
         notes: 'Deposit payment received',
       );
 
+      // Update professional balance (only for non-cash payments)
+      if (paymentMethod != PaymentMethod.cash) {
+        await _payoutService.updateProfessionalBalanceOnPayment(
+          professionalId: invoice.professionalId,
+          amount: invoice.depositAmount,
+        );
+        print('✅ [PaymentWorkflow] Updated professional balance for deposit payment: ${invoice.depositAmount}');
+      } else {
+        print('ℹ️ [PaymentWorkflow] Cash payment - no balance update needed');
+      }
+
       // Sync to Firestore (temporarily disabled due to permission issues)
       // await _syncPaymentToFirestore(updatedPayment);
       // await _syncInvoiceToFirestore(invoice.copyWith(status: InvoiceStatus.depositPaid));
@@ -191,6 +206,17 @@ class PaymentWorkflowService {
         status: InvoiceStatus.paid,
         notes: 'Full payment received',
       );
+
+      // Update professional balance (only for non-cash payments)
+      if (paymentMethod != PaymentMethod.cash) {
+        await _payoutService.updateProfessionalBalanceOnPayment(
+          professionalId: invoice.professionalId,
+          amount: invoice.balanceAmount,
+        );
+        print('✅ [PaymentWorkflow] Updated professional balance for balance payment: ${invoice.balanceAmount}');
+      } else {
+        print('ℹ️ [PaymentWorkflow] Cash payment - no balance update needed');
+      }
 
       // Sync to Firestore (temporarily disabled due to permission issues)
       // await _syncPaymentToFirestore(updatedPayment);

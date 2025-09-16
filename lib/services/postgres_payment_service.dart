@@ -20,10 +20,10 @@ class PostgresPaymentService {
       return 'localhost'; // Web platform
     } else if (Platform.isAndroid) {
       // Check if running on emulator or physical device
-      return _isEmulator() ? '10.0.2.2' : '192.168.0.52';
+      return _isEmulator() ? '10.0.2.2' : '192.168.0.53';
     } else if (Platform.isIOS) {
       // iOS simulator or physical device
-      return _isSimulator() ? 'localhost' : '192.168.0.52';
+      return _isSimulator() ? 'localhost' : '192.168.0.53';
     } else {
       return 'localhost'; // Desktop platforms
     }
@@ -49,9 +49,9 @@ class PostgresPaymentService {
     if (kIsWeb) {
       return 'Web platform (localhost)';
     } else if (Platform.isAndroid) {
-      return _isEmulator() ? 'Android Emulator (10.0.2.2)' : 'Android Physical Device (192.168.0.52)';
+      return _isEmulator() ? 'Android Emulator (10.0.2.2)' : 'Android Physical Device (192.168.0.53)';
     } else if (Platform.isIOS) {
-      return _isSimulator() ? 'iOS Simulator (localhost)' : 'iOS Physical Device (192.168.0.52)';
+      return _isSimulator() ? 'iOS Simulator (localhost)' : 'iOS Physical Device (192.168.0.53)';
     } else {
       return 'Desktop Platform (localhost)';
     }
@@ -268,6 +268,24 @@ class PostgresPaymentService {
       final paymentId = const Uuid().v4();
       final now = DateTime.now();
       
+      // Find the corresponding invoice for this booking
+      String? invoiceId;
+      try {
+        final invoiceResult = await _connection!.execute(
+          Sql.named('SELECT id FROM invoices WHERE booking_id = @bookingId ORDER BY created_at LIMIT 1'),
+          parameters: {'bookingId': bookingId}
+        );
+        final invoiceRows = await invoiceResult.toList();
+        if (invoiceRows.isNotEmpty) {
+          invoiceId = invoiceRows.first[0] as String;
+          print('🔗 [PostgresPayment] Found invoice $invoiceId for booking $bookingId');
+        } else {
+          print('⚠️ [PostgresPayment] No invoice found for booking $bookingId, creating payment without invoice link');
+        }
+      } catch (e) {
+        print('⚠️ [PostgresPayment] Error finding invoice for booking $bookingId: $e');
+      }
+      
       // Use a transaction to ensure atomicity
       await _connection!.runTx((ctx) async {
         // Insert payment record first
@@ -283,7 +301,7 @@ class PostgresPaymentService {
           '''),
           parameters: {
             'id': paymentId,
-            'invoiceId': null, // No invoice for simple payments
+            'invoiceId': invoiceId, // Link to invoice if found
             'bookingId': bookingId,
             'type': 'full', // Default to full payment
             'amount': amount,
@@ -674,7 +692,7 @@ class PostgresPaymentService {
   // Test connection with different hosts (for debugging)
   Future<Map<String, bool>> testConnectionHosts() async {
     final results = <String, bool>{};
-    final hosts = ['localhost', '10.0.2.2', '192.168.0.52'];
+    final hosts = ['localhost', '10.0.2.2', '192.168.0.53'];
     
     for (final host in hosts) {
       try {
@@ -792,6 +810,24 @@ class PostgresPaymentService {
       final balancePaymentId = const Uuid().v4();
       final now = DateTime.now();
 
+      // Find the corresponding invoice for this booking
+      String? invoiceId;
+      try {
+        final invoiceResult = await _connection!.execute(
+          Sql.named('SELECT id FROM invoices WHERE booking_id = @bookingId ORDER BY created_at LIMIT 1'),
+          parameters: {'bookingId': bookingId}
+        );
+        final invoiceRows = await invoiceResult.toList();
+        if (invoiceRows.isNotEmpty) {
+          invoiceId = invoiceRows.first[0] as String;
+          print('🔗 [PostgresPayment] Found invoice $invoiceId for balance payment booking $bookingId');
+        } else {
+          print('⚠️ [PostgresPayment] No invoice found for balance payment booking $bookingId');
+        }
+      } catch (e) {
+        print('⚠️ [PostgresPayment] Error finding invoice for balance payment booking $bookingId: $e');
+      }
+
       // Create a new payment record for the balance
       await _connection!.runTx((ctx) async {
         // Insert balance payment record
@@ -807,7 +843,7 @@ class PostgresPaymentService {
           '''),
           parameters: {
             'id': balancePaymentId,
-            'invoiceId': null,
+            'invoiceId': invoiceId, // Link to invoice if found
             'bookingId': bookingId,
             'type': 'balance',
             'amount': balanceAmount,

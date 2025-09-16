@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:http/http.dart' as http;
+import '../models/image_quality.dart';
 
 class PlatformImageService {
   static final ImagePicker _picker = ImagePicker();
@@ -174,6 +175,8 @@ class PlatformImageService {
         return 75;
       case ImageQuality.high:
         return 90;
+      case ImageQuality.original:
+        return 100;
     }
   }
 
@@ -185,6 +188,8 @@ class PlatformImageService {
         return 1200;
       case ImageQuality.high:
         return 1920;
+      case ImageQuality.original:
+        return null;
     }
   }
 
@@ -196,6 +201,8 @@ class PlatformImageService {
         return 900;
       case ImageQuality.high:
         return 1080;
+      case ImageQuality.original:
+        return null;
     }
   }
 
@@ -206,8 +213,3 @@ class PlatformImageService {
   }
 }
 
-enum ImageQuality {
-  low,
-  medium,
-  high,
-}

@@ -1613,12 +1613,18 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       }
 
       // Show review dialog for customer to rate professional
+      // Use Firebase Auth user data for customer identity, not UserState (which may contain professional data)
+      final customerName = userState.currentUser?.displayName ?? 
+                          userState.email?.split('@')[0] ?? 
+                          'Customer';
+      final customerPhotoUrl = userState.currentUser?.photoURL;
+      
       await ReviewSubmissionDialog.show(
         context,
         bookingId: booking.id,
         reviewerId: userState.userId!,
-        reviewerName: userState.fullName ?? userState.email!.split('@')[0],
-        reviewerPhotoUrl: userState.profilePhotoUrl,
+        reviewerName: customerName,
+        reviewerPhotoUrl: customerPhotoUrl,
         revieweeId: booking.professionalId,
         revieweeName: booking.professionalName,
         reviewType: ReviewType.customerToProfessional,
@@ -1682,12 +1688,18 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       }
 
       // Show review dialog for professional to rate customer
+      // Use UserState data for professional identity (this should contain professional data)
+      final professionalName = userState.fullName ?? 
+                              userState.email?.split('@')[0] ?? 
+                              'Professional';
+      final professionalPhotoUrl = userState.profilePhotoUrl;
+      
       await ReviewSubmissionDialog.show(
         context,
         bookingId: booking.id,
         reviewerId: userState.userId!,
-        reviewerName: userState.fullName ?? userState.email!.split('@')[0],
-        reviewerPhotoUrl: userState.profilePhotoUrl,
+        reviewerName: professionalName,
+        reviewerPhotoUrl: professionalPhotoUrl,
         revieweeId: booking.customerId,
         revieweeName: booking.customerName,
         reviewType: ReviewType.professionalToCustomer,

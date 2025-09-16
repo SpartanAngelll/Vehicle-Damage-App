@@ -486,12 +486,18 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
     // Debug logging removed - issue was fixed
     
     // Show review dialog for customer to rate professional
+    // Use Firebase Auth user data for customer identity, not UserState (which may contain professional data)
+    final customerName = userState.currentUser?.displayName ?? 
+                        userState.email?.split('@')[0] ?? 
+                        'Customer';
+    final customerPhotoUrl = userState.currentUser?.photoURL;
+    
     await ReviewSubmissionDialog.show(
       context,
       bookingId: widget.booking.id,
       reviewerId: userState.userId!,
-      reviewerName: userState.fullName ?? userState.email!.split('@')[0],
-      reviewerPhotoUrl: userState.profilePhotoUrl,
+      reviewerName: customerName,
+      reviewerPhotoUrl: customerPhotoUrl,
       revieweeId: widget.booking.professionalId,
       revieweeName: widget.booking.professionalName,
       reviewType: ReviewType.customerToProfessional,

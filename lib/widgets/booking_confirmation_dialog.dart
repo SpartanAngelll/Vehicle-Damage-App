@@ -543,66 +543,18 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
       final paymentService = PaymentWorkflowService.instance;
       await paymentService.initialize();
 
-      // Create invoice in PostgreSQL
-      final invoice = await paymentService.createInvoiceFromBooking(
-        bookingId: jobSummary.id,
-        customerId: jobSummary.customerId,
-        professionalId: jobSummary.professionalId,
-        totalAmount: jobSummary.extractedPrice,
-        depositPercentage: 0, // For now, no deposit required by default
-        currency: 'JMD',
-        notes: 'Invoice created for booking confirmation',
-      );
+      // Note: Invoice creation will be handled by the Chat Service when the booking is created
+      // This ensures the invoice uses the correct booking ID from the Chat Service
+      print('✅ [BookingConfirmation] Invoice creation will be handled by Chat Service');
 
-      // Check if deposit is required
-      if (invoice.isDepositRequired && !invoice.isDepositPaid) {
-        // Show deposit payment dialog
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => DepositPaymentDialog(
-              invoice: invoice,
-              onDepositPaid: (paymentMethod) async {
-                try {
-                  await paymentService.processDepositPayment(
-                    bookingId: jobSummary.id,
-                    paymentMethod: paymentMethod,
-                    notes: 'Deposit payment via ${paymentMethod.name}',
-                  );
-                  
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Deposit payment successful!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Payment failed: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-            ),
-          );
-        }
-      } else {
-        // No deposit required, show success message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Booking confirmed successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+      // Show success message - payment processing will be handled by Chat Service
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Booking confirmed! Payment will be processed.'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       print('❌ [BookingConfirmation] Failed to create invoice: $e');

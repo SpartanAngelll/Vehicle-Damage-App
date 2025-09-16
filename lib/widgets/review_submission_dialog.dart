@@ -86,7 +86,13 @@ class _ReviewSubmissionDialogState extends State<ReviewSubmissionDialog> {
 
     try {
       if (widget.reviewType == ReviewType.customerToProfessional) {
-        // Debug logging removed - issue was fixed
+        print('🔍 [ReviewSubmissionDialog] Submitting customer review:');
+        print('  Customer ID: ${widget.reviewerId}');
+        print('  Customer Name: ${widget.reviewerName}');
+        print('  Customer Photo: ${widget.reviewerPhotoUrl}');
+        print('  Professional ID: ${widget.revieweeId}');
+        print('  Professional Name: ${widget.revieweeName}');
+        print('  Rating: $_selectedRating');
         
         await _reviewService.submitCustomerReview(
           bookingId: widget.bookingId,
@@ -101,6 +107,14 @@ class _ReviewSubmissionDialogState extends State<ReviewSubmissionDialog> {
               : null,
         );
       } else {
+        print('🔍 [ReviewSubmissionDialog] Submitting professional review:');
+        print('  Professional ID: ${widget.reviewerId}');
+        print('  Professional Name: ${widget.reviewerName}');
+        print('  Professional Photo: ${widget.reviewerPhotoUrl}');
+        print('  Customer ID: ${widget.revieweeId}');
+        print('  Customer Name: ${widget.revieweeName}');
+        print('  Rating: $_selectedRating');
+        
         await _reviewService.submitProfessionalReview(
           bookingId: widget.bookingId,
           professionalId: widget.reviewerId,

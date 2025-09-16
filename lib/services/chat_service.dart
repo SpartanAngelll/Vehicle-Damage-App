@@ -5,6 +5,7 @@ import '../models/booking_models.dart';
 import '../models/payment_models.dart';
 import 'postgres_payment_service.dart';
 import 'mock_payment_service.dart';
+import 'payment_workflow_service.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -269,11 +270,27 @@ class ChatService {
 
       await _bookingsCollection.doc(bookingId).set(booking.toMap());
       
-      // Create payment record
+      // Create invoice and payment record
       try {
         // Try PostgreSQL first
         try {
           await _paymentService.initialize();
+          
+          // Create invoice first
+          final paymentWorkflowService = PaymentWorkflowService.instance;
+          await paymentWorkflowService.initialize();
+          
+          final invoice = await paymentWorkflowService.createInvoiceFromBooking(
+            bookingId: bookingId,
+            customerId: summary.customerId,
+            professionalId: summary.professionalId,
+            totalAmount: summary.extractedPrice,
+            depositPercentage: 0, // No deposit required by default
+            currency: 'JMD',
+            notes: 'Invoice created for booking: $serviceTitle',
+          );
+          
+          // Create payment record
           await _paymentService.createPayment(
             bookingId: bookingId,
             customerId: summary.customerId,
@@ -282,7 +299,8 @@ class ChatService {
             currency: 'JMD',
             notes: 'Payment for booking: $serviceTitle',
           );
-          print('✅ [ChatService] PostgreSQL payment record created for booking: $bookingId');
+          
+          print('✅ [ChatService] PostgreSQL invoice and payment record created for booking: $bookingId');
         } catch (e) {
           print('⚠️ [ChatService] PostgreSQL not available, using mock payments: $e');
           await _mockPaymentService.initialize();

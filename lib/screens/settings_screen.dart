@@ -6,6 +6,8 @@ import '../services/services.dart';
 import '../utils/responsive_utils.dart';
 import '../widgets/responsive_layout.dart';
 import '../widgets/theme_selector.dart';
+import '../widgets/banking_details_card.dart';
+import '../widgets/banking_details_form.dart';
 import '../theme/theme_provider.dart';
 import '../services/permission_service.dart';
 
@@ -83,6 +85,22 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
           _buildUserInfoCard(context),
           SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
           
+          // Banking Details section for service professionals
+          Consumer<UserState>(
+            builder: (context, userState, child) {
+              if (userState.isServiceProfessional) {
+                return Column(
+                  children: [
+                    _buildSectionHeader(context, "Banking Details"),
+                    _buildBankingDetailsCard(context),
+                    SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                  ],
+                );
+              }
+              return SizedBox.shrink();
+            },
+          ),
+          
           _buildSectionHeader(context, "App Settings"),
           _buildAppSettingsCard(context),
           SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
@@ -118,6 +136,22 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 _buildSectionHeader(context, "User Profile"),
                 _buildUserInfoCard(context),
                 SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                
+                // Banking Details section for service professionals
+                Consumer<UserState>(
+                  builder: (context, userState, child) {
+                    if (userState.isServiceProfessional) {
+                      return Column(
+                        children: [
+                          _buildSectionHeader(context, "Banking Details"),
+                          _buildBankingDetailsCard(context),
+                          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                        ],
+                      );
+                    }
+                    return SizedBox.shrink();
+                  },
+                ),
                 
                 _buildSectionHeader(context, "App Settings"),
                 _buildAppSettingsCard(context),
@@ -165,6 +199,22 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 _buildSectionHeader(context, "User Profile"),
                 _buildUserInfoCard(context),
                 SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                
+                // Banking Details section for service professionals
+                Consumer<UserState>(
+                  builder: (context, userState, child) {
+                    if (userState.isServiceProfessional) {
+                      return Column(
+                        children: [
+                          _buildSectionHeader(context, "Banking Details"),
+                          _buildBankingDetailsCard(context),
+                          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                        ],
+                      );
+                    }
+                    return SizedBox.shrink();
+                  },
+                ),
                 
                 _buildSectionHeader(context, "App Settings"),
                 _buildAppSettingsCard(context),
@@ -1212,5 +1262,146 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
 
   String _formatDate(DateTime date) {
     return "${date.day}/${date.month}/${date.year} at ${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+  }
+
+  Widget _buildBankingDetailsCard(BuildContext context) {
+    return Consumer<UserState>(
+      builder: (context, userState, child) {
+        if (!userState.isServiceProfessional || userState.userId == null) {
+          return SizedBox.shrink();
+        }
+
+        return StreamBuilder<BankingDetails?>(
+          stream: BankingDetailsService.instance.streamBankingDetails(userState.userId!),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return BankingDetailsCard(
+                isLoading: true,
+              );
+            }
+
+            return BankingDetailsCard(
+              bankingDetails: snapshot.data,
+              onEdit: () => _showBankingDetailsDialog(context, userState.userId!, snapshot.data),
+              onAdd: () => _showBankingDetailsDialog(context, userState.userId!, null),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showBankingDetailsDialog(BuildContext context, String professionalId, BankingDetails? existingDetails) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Container(
+          width: ResponsiveUtils.getResponsiveWidth(context, mobile: 400, tablet: 500, desktop: 600),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(8),
+                    topRight: Radius.circular(8),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.account_balance,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        existingDetails != null ? 'Edit Banking Details' : 'Add Banking Details',
+                        style: TextStyle(
+                          fontSize: ResponsiveUtils.getResponsiveFontSize(
+                            context,
+                            mobile: 18,
+                            tablet: 20,
+                            desktop: 22,
+                          ),
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onPrimary),
+                    ),
+                  ],
+                ),
+              ),
+              // Form content
+              Flexible(
+                child: BankingDetailsForm(
+                  initialData: existingDetails != null 
+                      ? BankingDetailsFormData.fromBankingDetails(existingDetails)
+                      : null,
+                  onSave: (formData) async {
+                    try {
+                      final bankingDetails = formData.toBankingDetails(professionalId);
+                      final validationResult = BankingDetailsService.instance.validateBankingDetails(bankingDetails);
+                      
+                      if (!validationResult.isValid) {
+                        // Show validation errors
+                        final errorMessages = validationResult.errors.values.join('\n');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Please fix the following errors:\n$errorMessages'),
+                              backgroundColor: Theme.of(context).colorScheme.error,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                        return;
+                      }
+
+                      // Save banking details
+                      await BankingDetailsService.instance.saveBankingDetails(bankingDetails);
+                      
+                      if (mounted) {
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(existingDetails != null 
+                                ? 'Banking details updated successfully!' 
+                                : 'Banking details added successfully!'),
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to save banking details: ${e.toString()}'),
+                            backgroundColor: Theme.of(context).colorScheme.error,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  onCancel: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
