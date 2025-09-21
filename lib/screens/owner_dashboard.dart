@@ -259,31 +259,45 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                         children: [
                           CircleAvatar(
                             radius: 40,
-                            backgroundColor: Theme.of(context).colorScheme.primary,
-                            child: Icon(
-                              Icons.person,
-                              size: 40,
-                              color: Theme.of(context).colorScheme.onPrimary,
-                            ),
+                            backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                            backgroundImage: userState.profilePhotoUrl != null
+                                ? NetworkImage(userState.profilePhotoUrl!)
+                                : null,
+                            child: userState.profilePhotoUrl == null
+                                ? Icon(
+                                    Icons.person,
+                                    size: 40,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  )
+                                : null,
                           ),
                           SizedBox(width: 16),
                           Expanded(
                             child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  userState.email ?? 'Customer',
+                                  userState.fullName ?? userState.email ?? 'Customer',
                                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-          ),
-        ),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (userState.username != null) ...[
+                                  SizedBox(height: 4),
+                                  Text(
+                                    '@${userState.username}',
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                ],
                                 SizedBox(height: 4),
-        Text(
+                                Text(
                                   'Service Request Customer',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -293,6 +307,25 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       _buildProfileInfoRow(context, 'Email', userState.email ?? 'Not provided'),
                       _buildProfileInfoRow(context, 'User ID', userState.userId ?? 'Not available'),
                       _buildProfileInfoRow(context, 'Account Type', 'Customer'),
+                      
+                      SizedBox(height: 16),
+                      
+                      // Edit Profile Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pushNamed(context, '/customerEditProfile');
+                          },
+                          icon: const Icon(Icons.edit),
+                          label: const Text('Edit Profile'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Theme.of(context).colorScheme.primary,
+                            side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

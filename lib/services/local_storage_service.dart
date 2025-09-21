@@ -211,6 +211,60 @@ class LocalStorageService {
     }
   }
 
+  static Future<bool> saveUserFullName(String fullName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setString('user_full_name', fullName);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<String?> getUserFullName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('user_full_name');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<bool> saveUserUsername(String username) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setString('user_username', username);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<String?> getUserUsername() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('user_username');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<bool> saveUserProfilePhotoUrl(String profilePhotoUrl) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setString('user_profile_photo_url', profilePhotoUrl);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<String?> getUserProfilePhotoUrl() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('user_profile_photo_url');
+    } catch (e) {
+      return null;
+    }
+  }
+
   static Future<bool> saveIsAuthenticated(bool isAuthenticated) async {
     try {
       final prefs = await SharedPreferences.getInstance();

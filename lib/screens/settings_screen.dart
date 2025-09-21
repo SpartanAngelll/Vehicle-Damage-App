@@ -306,6 +306,51 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Profile Picture and Basic Info
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                      backgroundImage: userState.profilePhotoUrl != null
+                          ? NetworkImage(userState.profilePhotoUrl!)
+                          : null,
+                      child: userState.profilePhotoUrl == null
+                          ? Icon(
+                              Icons.person,
+                              size: 30,
+                              color: Theme.of(context).colorScheme.primary,
+                            )
+                          : null,
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            userState.fullName ?? 'No name set',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (userState.username != null) ...[
+                            SizedBox(height: 4),
+                            Text(
+                              '@${userState.username}',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                SizedBox(height: 16),
+                
                 _buildInfoRow(context, "Email", userState.email ?? 'N/A'),
                 _buildInfoRow(context, "Phone", userState.phoneNumber ?? 'N/A'),
                 _buildInfoRow(context, "Role", _getRoleDisplayName(userState)),
@@ -315,6 +360,26 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 if (userState.isRepairman) ...[
                   SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
                   _buildBioCard(context, userState),
+                ],
+                
+                // Edit Profile Button for customers
+                if (userState.isOwner) ...[
+                  SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/customerEditProfile');
+                      },
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Edit Profile'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.primary,
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
                 ],
               ],
             ),

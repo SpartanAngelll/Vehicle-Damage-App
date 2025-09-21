@@ -15,6 +15,7 @@ class FirebaseFirestoreService {
   CollectionReference get _bookingsCollection => _firestore.collection('bookings');
   CollectionReference get _damageReportsCollection => _firestore.collection('damage_reports');
   CollectionReference get _estimatesCollection => _firestore.collection('estimates');
+  CollectionReference get _usernamesCollection => _firestore.collection('usernames');
 
   /// Get user bookings
   Future<List<Map<String, dynamic>>> getUserBookings(String userId, {String? userType}) async {
@@ -790,6 +791,79 @@ class FirebaseFirestoreService {
       await _usersCollection.doc(userData['id']).set(userData);
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error creating user profile: $e');
+      rethrow;
+    }
+  }
+
+  /// Check if username is already taken
+  Future<bool> isUsernameTaken(String username) async {
+    try {
+      final doc = await _usernamesCollection.doc(username.toLowerCase()).get();
+      return doc.exists;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error checking username availability: $e');
+      rethrow;
+    }
+  }
+
+  /// Reserve username for a user
+  Future<void> reserveUsername(String username, String userId) async {
+    try {
+      await _usernamesCollection.doc(username.toLowerCase()).set({
+        'userId': userId,
+        'username': username,
+        'reservedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error reserving username: $e');
+      rethrow;
+    }
+  }
+
+  /// Release username reservation
+  Future<void> releaseUsername(String username) async {
+    try {
+      await _usernamesCollection.doc(username.toLowerCase()).delete();
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error releasing username: $e');
+      rethrow;
+    }
+  }
+
+  /// Update user profile with username and profile picture
+  Future<void> updateUserProfile({
+    required String userId,
+    String? username,
+    String? fullName,
+    String? profilePhotoUrl,
+    String? bio,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (username != null) {
+        updateData['username'] = username;
+        // Reserve the new username
+        await reserveUsername(username, userId);
+      }
+      
+      if (fullName != null) {
+        updateData['fullName'] = fullName;
+      }
+      
+      if (profilePhotoUrl != null) {
+        updateData['profilePhotoUrl'] = profilePhotoUrl;
+      }
+      
+      if (bio != null) {
+        updateData['bio'] = bio;
+      }
+
+      await _usersCollection.doc(userId).update(updateData);
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error updating user profile: $e');
       rethrow;
     }
   }

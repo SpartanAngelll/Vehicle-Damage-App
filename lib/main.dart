@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'models/models.dart';
 import 'screens/screens.dart';
+import 'screens/customer_profile_setup_screen.dart';
+import 'screens/customer_edit_profile_screen.dart';
 import 'theme/theme.dart';
 import 'services/services.dart';
 import 'services/firebase_firestore_service.dart';
@@ -80,6 +82,8 @@ class VehicleDamageApp extends StatelessWidget {
             '/onboarding': (context) => OnboardingScreen(),
             '/permissions': (context) => PermissionRequestScreen(),
             '/login': (context) => LoginScreen(),
+            '/customerProfileSetup': (context) => CustomerProfileSetupScreen(),
+            '/customerEditProfile': (context) => CustomerEditProfileScreen(),
             '/ownerDashboard': (context) => OwnerDashboard(),
             '/repairmanDashboard': (context) => RepairmanDashboard(),
             '/settings': (context) => SettingsScreen(),

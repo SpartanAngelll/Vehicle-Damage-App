@@ -196,5 +196,13 @@ service cloud.firestore {
         true
       );
     }
+    
+    // Usernames collection - for checking username availability
+    match /usernames/{username} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
   }
 }

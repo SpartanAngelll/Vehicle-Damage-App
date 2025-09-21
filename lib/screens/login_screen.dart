@@ -401,7 +401,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Navigate to appropriate screen
       if (_selectedRole == 'owner') {
-        Navigator.pushReplacementNamed(context, '/ownerDashboard');
+        Navigator.pushReplacementNamed(context, '/customerProfileSetup');
       } else {
         // For repair professionals, go to the new registration flow
         Navigator.pushReplacementNamed(context, '/serviceProfessionalRegistration');
@@ -437,6 +437,9 @@ class _LoginScreenState extends State<LoginScreen> {
           userType: userType,
           phoneNumber: userProfile['phone'],
           bio: userProfile['bio'],
+          fullName: userProfile['fullName'],
+          username: userProfile['username'],
+          profilePhotoUrl: userProfile['profilePhotoUrl'],
           currentUser: credential.user,
         );
         

@@ -28,6 +28,7 @@ class UserState extends ChangeNotifier {
   
   // User profile properties
   String? _fullName;
+  String? _username;
   String? _profilePhotoUrl;
   
   // For service professionals: track categories and specializations
@@ -68,6 +69,7 @@ class UserState extends ChangeNotifier {
   
   // User profile getters
   String? get fullName => _fullName;
+  String? get username => _username;
   String? get profilePhotoUrl => _profilePhotoUrl;
   
   // Service professional specific getters
@@ -122,6 +124,9 @@ class UserState extends ChangeNotifier {
     required String userType,
     String? phoneNumber,
     String? bio,
+    String? fullName,
+    String? username,
+    String? profilePhotoUrl,
     User? currentUser,
   }) {
     debugPrint('UserState: Initializing from Firebase - userId: $userId, email: $email, userType: $userType');
@@ -151,6 +156,9 @@ class UserState extends ChangeNotifier {
     }
     
     _bio = bio;
+    _fullName = fullName;
+    _username = username;
+    _profilePhotoUrl = profilePhotoUrl;
     _isAuthenticated = true;
     _lastLoginTime = DateTime.now();
     
@@ -181,6 +189,7 @@ class UserState extends ChangeNotifier {
     _lastLoginTime = null;
     _bio = null;
     _fullName = null;
+    _username = null;
     _profilePhotoUrl = null;
     _currentUser = null;
     
@@ -229,6 +238,9 @@ class UserState extends ChangeNotifier {
     String? email,
     String? phoneNumber,
     String? bio,
+    String? fullName,
+    String? username,
+    String? profilePhotoUrl,
   }) async {
     try {
       _setLoading(true);
@@ -237,6 +249,9 @@ class UserState extends ChangeNotifier {
       if (email != null) _email = email;
       if (phoneNumber != null) _phoneNumber = phoneNumber;
       if (bio != null) _bio = bio;
+      if (fullName != null) _fullName = fullName;
+      if (username != null) _username = username;
+      if (profilePhotoUrl != null) _profilePhotoUrl = profilePhotoUrl;
 
       await _saveUserData();
 
@@ -411,6 +426,68 @@ class UserState extends ChangeNotifier {
       });
     } catch (e) {
       _setError('Bio update failed: ${e.toString()}');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Update username with validation
+  Future<void> updateUsername(String newUsername) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      // Validate username
+      if (newUsername.trim().isEmpty) {
+        throw Exception('Username cannot be empty');
+      }
+      
+      if (newUsername.length < 3) {
+        throw Exception('Username must be at least 3 characters long');
+      }
+      
+      if (newUsername.length > 20) {
+        throw Exception('Username must be 20 characters or less');
+      }
+      
+      // Check for valid characters (alphanumeric and underscores only)
+      if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(newUsername)) {
+        throw Exception('Username can only contain letters, numbers, and underscores');
+      }
+
+      // Check if username is already taken (this would need to be implemented in Firestore service)
+      final firestoreService = FirebaseFirestoreService();
+      final isUsernameTaken = await firestoreService.isUsernameTaken(newUsername.trim());
+      
+      if (isUsernameTaken) {
+        throw Exception('Username is already taken');
+      }
+
+      _username = newUsername.trim();
+      await _saveUserData();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
+    } catch (e) {
+      _setError('Username update failed: ${e.toString()}');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Update profile picture
+  Future<void> updateProfilePicture(String newProfilePhotoUrl) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      _profilePhotoUrl = newProfilePhotoUrl;
+      await _saveUserData();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (hasListeners) notifyListeners();
+      });
+    } catch (e) {
+      _setError('Profile picture update failed: ${e.toString()}');
     } finally {
       _setLoading(false);
     }
@@ -679,6 +756,9 @@ class UserState extends ChangeNotifier {
       final phone = await LocalStorageService.getUserPhone();
       final roleString = await LocalStorageService.getUserRole();
       final bio = await LocalStorageService.getUserBio();
+      final fullName = await LocalStorageService.getUserFullName();
+      final username = await LocalStorageService.getUserUsername();
+      final profilePhotoUrl = await LocalStorageService.getUserProfilePhotoUrl();
       final isAuthenticated = await LocalStorageService.getIsAuthenticated();
       final lastLoginTime = await LocalStorageService.getLastLoginTime();
 
@@ -691,8 +771,14 @@ class UserState extends ChangeNotifier {
           orElse: () => UserRole.owner,
         );
         _bio = bio;
+        _fullName = fullName;
+        _username = username;
+        _profilePhotoUrl = profilePhotoUrl;
         _isAuthenticated = isAuthenticated ?? false;
         _lastLoginTime = lastLoginTime;
+        
+        // Load latest data from Firebase
+        await _refreshUserDataFromFirebase();
         
         // Load service professional profile if applicable
         if (_role == UserRole.serviceProfessional) {
@@ -705,6 +791,34 @@ class UserState extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Failed to load user data: $e');
+    }
+  }
+
+  /// Refresh user data from Firebase
+  Future<void> _refreshUserDataFromFirebase() async {
+    if (_userId == null) return;
+    
+    try {
+      final firestoreService = FirebaseFirestoreService();
+      final userProfile = await firestoreService.getUserProfile(_userId!);
+      
+      if (userProfile != null) {
+        // Update profile data from Firebase
+        _fullName = userProfile['fullName'];
+        _username = userProfile['username'];
+        _profilePhotoUrl = userProfile['profilePhotoUrl'];
+        _bio = userProfile['bio'];
+        
+        // Save updated data to local storage
+        if (_fullName != null) await LocalStorageService.saveUserFullName(_fullName!);
+        if (_username != null) await LocalStorageService.saveUserUsername(_username!);
+        if (_profilePhotoUrl != null) await LocalStorageService.saveUserProfilePhotoUrl(_profilePhotoUrl!);
+        if (_bio != null) await LocalStorageService.saveUserBio(_bio!);
+        
+        debugPrint('UserState: Refreshed user data from Firebase');
+      }
+    } catch (e) {
+      debugPrint('Failed to refresh user data from Firebase: $e');
     }
   }
 
