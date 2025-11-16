@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
 import '../models/booking_models.dart';
@@ -14,6 +15,8 @@ import '../widgets/booking_confirmation_dialog.dart';
 import '../widgets/service_request_details_dialog.dart';
 import '../widgets/estimate_details_dialog.dart';
 import '../widgets/content_filter_warning_dialog.dart';
+import '../widgets/web_layout.dart';
+import '../widgets/profile_avatar.dart';
 import 'booking_summary_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -454,18 +457,152 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWeb = kIsWeb;
+    final chatBody = Column(
+      children: [
+        Expanded(
+          child: StreamBuilder<List<ChatMessage>>(
+            stream: _chatService.getMessagesStream(widget.chatRoomId),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error: ${snapshot.error}'),
+                );
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              final messages = snapshot.data ?? [];
+              _messages = messages;
+
+              if (messages.isEmpty) {
+                return Center(
+                  child: Text(
+                    'Start the conversation!\nDiscuss job details, schedule, and requirements.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isWeb 
+                        ? Theme.of(context).colorScheme.onSurfaceVariant
+                        : Colors.white70,
+                    ),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                itemCount: messages.length,
+                itemBuilder: (context, index) {
+                  final message = messages[index];
+                  return _buildMessageBubble(message);
+                },
+              );
+            },
+          ),
+        ),
+        _buildMessageInput(),
+      ],
+    );
+
+    // On web, use web layout wrapper
+    if (isWeb) {
+      final screenWidth = MediaQuery.of(context).size.width;
+      final maxChatWidth = (screenWidth > 1400 ? 1000.0 : 900.0);
+      
+      return WebLayout(
+        currentRoute: '/chat',
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(maxWidth: maxChatWidth),
+            child: Column(
+              children: [
+                // Chat header with actions
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      ProfileAvatar(
+                        profilePhotoUrl: widget.otherUserPhotoUrl,
+                        radius: 20,
+                        fallbackIcon: Icons.person,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.otherUserName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Discuss job details',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.person_outline),
+                        onPressed: () => _showServiceRequestDetails(),
+                        tooltip: 'View Service Request',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.work_outline),
+                        onPressed: () => _showEstimateDetails(),
+                        tooltip: 'View Estimate',
+                      ),
+                      IconButton(
+                        icon: _isGeneratingBooking
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.auto_awesome),
+                        onPressed: _isGeneratingBooking ? null : _generateBooking,
+                        tooltip: 'Generate Booking',
+                      ),
+                    ],
+                  ),
+                ),
+                // Chat messages
+                Expanded(child: chatBody),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // On mobile, use original layout
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            CircleAvatar(
+            ProfileAvatar(
+              profilePhotoUrl: widget.otherUserPhotoUrl,
               radius: 16,
-              backgroundImage: widget.otherUserPhotoUrl != null
-                  ? NetworkImage(widget.otherUserPhotoUrl!)
-                  : null,
-              child: widget.otherUserPhotoUrl == null
-                  ? const Icon(Icons.person, size: 16)
-                  : null,
+              fallbackIcon: Icons.person,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -486,19 +623,16 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
-          // Customer profile icon - shows service request
           IconButton(
             icon: const Icon(Icons.person_outline),
             onPressed: () => _showServiceRequestDetails(),
             tooltip: 'View Service Request',
           ),
-          // Professional profile icon - shows estimate
           IconButton(
             icon: const Icon(Icons.work_outline),
             onPressed: () => _showEstimateDetails(),
             tooltip: 'View Estimate',
           ),
-          // Generate booking button
           IconButton(
             icon: _isGeneratingBooking
                 ? const SizedBox(
@@ -512,52 +646,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<List<ChatMessage>>(
-              stream: _chatService.getMessagesStream(widget.chatRoomId),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('Error: ${snapshot.error}'),
-                  );
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                }
-
-                final messages = snapshot.data ?? [];
-                _messages = messages;
-
-                if (messages.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'Start the conversation!\nDiscuss job details, schedule, and requirements.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final message = messages[index];
-                    return _buildMessageBubble(message);
-                  },
-                );
-              },
-            ),
-          ),
-          _buildMessageInput(),
-        ],
-      ),
+      body: chatBody,
     );
   }
 
@@ -600,14 +689,10 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMe) ...[
-            CircleAvatar(
+            ProfileAvatar(
+              profilePhotoUrl: message.senderPhotoUrl,
               radius: 16,
-              backgroundImage: message.senderPhotoUrl != null
-                  ? NetworkImage(message.senderPhotoUrl!)
-                  : null,
-              child: message.senderPhotoUrl == null
-                  ? const Icon(Icons.person, size: 16)
-                  : null,
+              fallbackIcon: Icons.person,
             ),
             const SizedBox(width: 8),
           ],
@@ -647,14 +732,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           if (isMe) ...[
             const SizedBox(width: 8),
-            CircleAvatar(
+            ProfileAvatar(
+              profilePhotoUrl: userState.profilePhotoUrl,
               radius: 16,
-              backgroundImage: userState.profilePhotoUrl != null
-                  ? NetworkImage(userState.profilePhotoUrl!)
-                  : null,
-              child: userState.profilePhotoUrl == null
-                  ? const Icon(Icons.person, size: 16)
-                  : null,
+              fallbackIcon: Icons.person,
             ),
           ],
         ],

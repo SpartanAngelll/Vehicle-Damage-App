@@ -1,11 +1,15 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/user_state.dart';
 import '../services/firebase_firestore_service.dart';
 import '../services/storage_service.dart';
+import '../services/profile_auto_fill_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/profile_avatar.dart';
 
 class CustomerProfileSetupScreen extends StatefulWidget {
   const CustomerProfileSetupScreen({super.key});
@@ -21,6 +25,7 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
   final _bioController = TextEditingController();
   
   File? _selectedImage;
+  Uint8List? _selectedImageBytes; // For web platform
   String? _profilePhotoUrl;
   bool _isLoading = false;
   String? _errorMessage;
@@ -44,18 +49,66 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
 
   void _loadExistingProfile() {
     final userState = context.read<UserState>();
-    if (userState.fullName != null) {
-      _fullNameController.text = userState.fullName!;
-    }
-    if (userState.username != null) {
-      _usernameController.text = userState.username!;
-    }
-    if (userState.bio != null) {
-      _bioController.text = userState.bio!;
-    }
+    
+    // Get auto-fill data and suggestions
+    final profileData = ProfileAutoFillService.getCustomerProfileData(userState);
+    final suggestions = ProfileAutoFillService.getSuggestedValues(userState);
+    
+    // Auto-fill form controllers
+    final controllers = {
+      'fullName': _fullNameController,
+      'username': _usernameController,
+      'bio': _bioController,
+    };
+    
+    ProfileAutoFillService.populateFormControllers(
+      controllers: controllers,
+      userState: userState,
+      suggestions: suggestions,
+    );
+    
+    // Set profile photo
     if (userState.profilePhotoUrl != null) {
       _profilePhotoUrl = userState.profilePhotoUrl;
     }
+    
+    // Show suggestions to user if any
+    if (suggestions.isNotEmpty) {
+      _showAutoFillSuggestions(suggestions);
+    }
+  }
+  
+  void _showAutoFillSuggestions(Map<String, dynamic> suggestions) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Profile Suggestions'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('We\'ve found some information that might help complete your profile:'),
+                const SizedBox(height: 16),
+                if (suggestions['suggestedFullName'] != null)
+                  Text('• Suggested name: ${suggestions['suggestedFullName']}'),
+                if (suggestions['suggestedUsername'] != null)
+                  Text('• Suggested username: ${suggestions['suggestedUsername']}'),
+                const SizedBox(height: 16),
+                const Text('You can edit these suggestions in the form below.'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
+          ),
+        );
+      }
+    });
   }
 
   Future<void> _pickImage() async {
@@ -69,10 +122,22 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
       );
 
       if (image != null) {
-        setState(() {
-          _selectedImage = File(image.path);
-          _profilePhotoUrl = null; // Clear existing URL when new image is selected
-        });
+        if (kIsWeb) {
+          // On web, read bytes directly from XFile
+          final bytes = await image.readAsBytes();
+          setState(() {
+            _selectedImageBytes = bytes;
+            _selectedImage = null;
+            _profilePhotoUrl = null; // Clear existing URL when new image is selected
+          });
+        } else {
+          // On mobile, use File
+          setState(() {
+            _selectedImage = File(image.path);
+            _selectedImageBytes = null;
+            _profilePhotoUrl = null; // Clear existing URL when new image is selected
+          });
+        }
       }
     } catch (e) {
       _showError('Failed to pick image: $e');
@@ -90,10 +155,22 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
       );
 
       if (image != null) {
-        setState(() {
-          _selectedImage = File(image.path);
-          _profilePhotoUrl = null; // Clear existing URL when new image is selected
-        });
+        if (kIsWeb) {
+          // On web, read bytes directly from XFile
+          final bytes = await image.readAsBytes();
+          setState(() {
+            _selectedImageBytes = bytes;
+            _selectedImage = null;
+            _profilePhotoUrl = null; // Clear existing URL when new image is selected
+          });
+        } else {
+          // On mobile, use File
+          setState(() {
+            _selectedImage = File(image.path);
+            _selectedImageBytes = null;
+            _profilePhotoUrl = null; // Clear existing URL when new image is selected
+          });
+        }
       }
     } catch (e) {
       _showError('Failed to take photo: $e');
@@ -146,7 +223,14 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
       String? finalProfilePhotoUrl = _profilePhotoUrl;
 
       // Upload new profile picture if one was selected
-      if (_selectedImage != null) {
+      if (kIsWeb && _selectedImageBytes != null) {
+        // On web, use bytes-based upload
+        finalProfilePhotoUrl = await StorageService.uploadUserProfileImageFromBytes(
+          userId: userState.userId!,
+          imageBytes: _selectedImageBytes!,
+        );
+      } else if (!kIsWeb && _selectedImage != null) {
+        // On mobile, use File-based upload
         finalProfilePhotoUrl = await StorageService.uploadUserProfileImage(
           userId: userState.userId!,
           imageFile: _selectedImage!,
@@ -216,24 +300,9 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
                 Center(
                   child: Column(
                     children: [
-                      Stack(
-                        children: [
-                          CircleAvatar(
-                            radius: 60,
-                            backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
-                            backgroundImage: _selectedImage != null
-                                ? FileImage(_selectedImage!)
-                                : _profilePhotoUrl != null
-                                    ? NetworkImage(_profilePhotoUrl!)
-                                    : null,
-                            child: _selectedImage == null && _profilePhotoUrl == null
-                                ? Icon(
-                                    Icons.person,
-                                    size: 60,
-                                    color: AppTheme.primaryColor,
-                                  )
-                                : null,
-                          ),
+                        Stack(
+                          children: [
+                            _buildProfileImage(),
                           Positioned(
                             bottom: 0,
                             right: 0,
@@ -474,7 +543,7 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
                   _takePhoto();
                 },
               ),
-              if (_selectedImage != null || _profilePhotoUrl != null)
+              if (_selectedImage != null || _selectedImageBytes != null || _profilePhotoUrl != null)
                 ListTile(
                   leading: const Icon(Icons.delete, color: Colors.red),
                   title: const Text('Remove Photo', style: TextStyle(color: Colors.red)),
@@ -482,6 +551,7 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
                     Navigator.of(context).pop();
                     setState(() {
                       _selectedImage = null;
+                      _selectedImageBytes = null;
                       _profilePhotoUrl = null;
                     });
                   },
@@ -490,6 +560,45 @@ class _CustomerProfileSetupScreenState extends State<CustomerProfileSetupScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildProfileImage() {
+    // If there's a selected image on web (bytes), display it
+    if (kIsWeb && _selectedImageBytes != null) {
+      return CircleAvatar(
+        radius: 60,
+        backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+        backgroundImage: MemoryImage(_selectedImageBytes!),
+      );
+    }
+    
+    // If there's a selected image on mobile (File), display it
+    if (!kIsWeb && _selectedImage != null) {
+      return CircleAvatar(
+        radius: 60,
+        backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+        backgroundImage: FileImage(_selectedImage!),
+      );
+    }
+    
+    // If there's a profile photo URL, use ProfileAvatar
+    if (_profilePhotoUrl != null) {
+      return ProfileAvatar(
+        profilePhotoUrl: _profilePhotoUrl,
+        radius: 60,
+      );
+    }
+    
+    // Default: show icon
+    return CircleAvatar(
+      radius: 60,
+      backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+      child: Icon(
+        Icons.person,
+        size: 60,
+        color: AppTheme.primaryColor,
+      ),
     );
   }
 }

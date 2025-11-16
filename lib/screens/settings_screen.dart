@@ -8,6 +8,7 @@ import '../widgets/responsive_layout.dart';
 import '../widgets/theme_selector.dart';
 import '../widgets/banking_details_card.dart';
 import '../widgets/banking_details_form.dart';
+import '../widgets/profile_avatar.dart';
 import '../theme/theme_provider.dart';
 import '../services/permission_service.dart';
 
@@ -103,6 +104,10 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
           
           _buildSectionHeader(context, "App Settings"),
           _buildAppSettingsCard(context),
+          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+          
+          _buildSectionHeader(context, "Booking System"),
+          _buildBookingSystemCard(context),
           SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
           
           _buildSectionHeader(context, "Storage Information"),
@@ -309,19 +314,9 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 // Profile Picture and Basic Info
                 Row(
                   children: [
-                    CircleAvatar(
+                    ProfileAvatar(
+                      profilePhotoUrl: userState.profilePhotoUrl,
                       radius: 30,
-                      backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                      backgroundImage: userState.profilePhotoUrl != null
-                          ? NetworkImage(userState.profilePhotoUrl!)
-                          : null,
-                      child: userState.profilePhotoUrl == null
-                          ? Icon(
-                              Icons.person,
-                              size: 30,
-                              color: Theme.of(context).colorScheme.primary,
-                            )
-                          : null,
                     ),
                     SizedBox(width: 16),
                     Expanded(
@@ -540,6 +535,47 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
             ),
             SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
             _showThemeSelector(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingSystemCard(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Booking System Demo",
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontSize: ResponsiveUtils.getResponsiveFontSize(
+                  context,
+                  mobile: 18,
+                  tablet: 20,
+                  desktop: 22,
+                ),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+            Text(
+              "Test the new booking system with calendar functionality and availability tracking.",
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pushNamed(context, '/bookingIntegrationExample');
+              },
+              icon: const Icon(Icons.calendar_today),
+              label: const Text('Open Booking Demo'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
           ],
         ),
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -59,6 +60,27 @@ class _ServiceRequestScreenState extends State<ServiceRequestScreen> {
           );
         }
 
+        final isWeb = kIsWeb;
+        
+        // On web, use web layout wrapper
+        if (isWeb) {
+          final screenWidth = MediaQuery.of(context).size.width;
+          final maxContentWidth = (screenWidth > 1400 ? 900.0 : 800.0);
+          
+          return WebLayout(
+            currentRoute: '/serviceRequest',
+            child: Center(
+              child: Container(
+                constraints: BoxConstraints(maxWidth: maxContentWidth),
+                child: SingleChildScrollView(
+                  child: _buildServiceRequestForm(context),
+                ),
+              ),
+            ),
+          );
+        }
+        
+        // On mobile, use original layout
         return Scaffold(
           appBar: AppBar(
             title: const Text('Create Service Request'),

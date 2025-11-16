@@ -3,6 +3,7 @@ import '../models/review_models.dart';
 import '../services/review_service.dart';
 import '../theme/app_theme.dart';
 import '../screens/reviews_screen.dart';
+import 'profile_avatar.dart';
 
 class HorizontalRatingsWidget extends StatefulWidget {
   final String professionalId;
@@ -20,6 +21,7 @@ class HorizontalRatingsWidget extends StatefulWidget {
 
 class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
   final ReviewService _reviewService = ReviewService();
+  final ScrollController _reviewsScrollController = ScrollController();
   List<CustomerReview> _reviews = [];
   bool _isLoading = true;
   double _averageRating = 0.0;
@@ -29,6 +31,12 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
   void initState() {
     super.initState();
     _loadReviews();
+  }
+
+  @override
+  void dispose() {
+    _reviewsScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadReviews() async {
@@ -48,8 +56,15 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
         _isLoading = false;
       });
     } catch (e) {
-      print('❌ [HorizontalRatingsWidget] Error loading reviews: $e');
-      setState(() => _isLoading = false);
+      print('❌ [HorizontalRatingsWidget] Error loading reviews for ${widget.professionalId}: $e');
+      print('❌ [HorizontalRatingsWidget] Error type: ${e.runtimeType}');
+      // Set empty state on error
+      setState(() {
+        _reviews = [];
+        _averageRating = 0.0;
+        _totalReviews = 0;
+        _isLoading = false;
+      });
     }
   }
 
@@ -58,7 +73,6 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
     if (_isLoading) {
       return Container(
         height: 200,
-        margin: const EdgeInsets.symmetric(horizontal: 20),
         child: const Center(
           child: CircularProgressIndicator(),
         ),
@@ -68,7 +82,6 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
     if (_reviews.isEmpty) {
       return Container(
         height: 200,
-        margin: const EdgeInsets.symmetric(horizontal: 20),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -111,9 +124,7 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
       );
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header with average rating and total reviews
@@ -145,16 +156,100 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
           
           const SizedBox(height: 16),
           
-          // Horizontal scrolling reviews
-          SizedBox(
-            height: 180,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _reviews.length,
-              itemBuilder: (context, index) {
-                return _buildReviewCard(_reviews[index]);
-              },
-            ),
+          // Horizontal scrolling reviews with navigation arrows
+          Stack(
+            children: [
+              SizedBox(
+                height: 180,
+                child: ListView.builder(
+                  controller: _reviewsScrollController,
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _reviews.length,
+                  itemBuilder: (context, index) {
+                    return _buildReviewCard(_reviews[index]);
+                  },
+                ),
+              ),
+              // Navigation arrows
+              if (_reviews.length > 1) ...[
+                // Previous arrow
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Material(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(20),
+                      child: InkWell(
+                        onTap: () {
+                          if (_reviewsScrollController.hasClients) {
+                            final newOffset = (_reviewsScrollController.offset - 300).clamp(
+                              0.0,
+                              _reviewsScrollController.position.maxScrollExtent,
+                            );
+                            _reviewsScrollController.animateTo(
+                              newOffset,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          padding: const EdgeInsets.all(8),
+                          child: const Icon(
+                            Icons.chevron_left,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Next arrow
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Material(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(20),
+                      child: InkWell(
+                        onTap: () {
+                          if (_reviewsScrollController.hasClients) {
+                            final newOffset = (_reviewsScrollController.offset + 300).clamp(
+                              0.0,
+                              _reviewsScrollController.position.maxScrollExtent,
+                            );
+                            _reviewsScrollController.animateTo(
+                              newOffset,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          padding: const EdgeInsets.all(8),
+                          child: const Icon(
+                            Icons.chevron_right,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
           
           const SizedBox(height: 16),
@@ -182,8 +277,7 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildStarRating(double rating) {
@@ -231,24 +325,11 @@ class _HorizontalRatingsWidgetState extends State<HorizontalRatingsWidget> {
           Row(
             children: [
               // Avatar
-              CircleAvatar(
+              ProfileAvatar(
+                profilePhotoUrl: review.customerPhotoUrl,
                 radius: 18,
                 backgroundColor: Colors.grey[200],
-                backgroundImage: review.customerPhotoUrl != null 
-                    ? NetworkImage(review.customerPhotoUrl!)
-                    : null,
-                child: review.customerPhotoUrl == null
-                    ? Text(
-                        review.customerName.isNotEmpty 
-                            ? review.customerName[0].toUpperCase()
-                            : 'U',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      )
-                    : null,
+                fallbackIcon: Icons.person,
               ),
               const SizedBox(width: 12),
               // Name and rating

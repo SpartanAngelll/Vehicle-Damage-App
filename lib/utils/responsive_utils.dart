@@ -100,4 +100,32 @@ class ResponsiveUtils {
     if (isTablet(context)) return tablet;
     return desktop;
   }
+
+  /// Get maximum content width for web layouts based on screen size
+  static double getWebMaxWidth(BuildContext context) {
+    final screenWidth = getScreenWidth(context);
+    if (screenWidth > 1920) {
+      return 1600; // Ultra-wide screens
+    } else if (screenWidth > 1600) {
+      return 1400; // Large desktop
+    } else if (screenWidth > 1280) {
+      return 1200; // Standard desktop
+    } else if (screenWidth > 1024) {
+      return 1000; // Small desktop/large tablet
+    } else {
+      return screenWidth; // Tablet and below - use full width
+    }
+  }
+
+  /// Get responsive padding for web content areas
+  static EdgeInsets getWebContentPadding(BuildContext context) {
+    final screenWidth = getScreenWidth(context);
+    if (screenWidth > 1600) {
+      return const EdgeInsets.symmetric(horizontal: 32, vertical: 24);
+    } else if (screenWidth > 1280) {
+      return const EdgeInsets.symmetric(horizontal: 24, vertical: 20);
+    } else {
+      return const EdgeInsets.symmetric(horizontal: 20, vertical: 16);
+    }
+  }
 }

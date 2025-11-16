@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/models.dart';
 import '../models/chat_models.dart';
 import '../services/services.dart';
@@ -73,7 +74,7 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
                     radius: 30,
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     backgroundImage: _professional?.profilePhotoUrl != null
-                        ? NetworkImage(_professional!.profilePhotoUrl!)
+                        ? _buildImageProvider(_professional!.profilePhotoUrl!)
                         : null,
                     child: _professional?.profilePhotoUrl == null
                         ? Icon(
@@ -492,6 +493,11 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
     }
   }
 
+  ImageProvider _buildImageProvider(String imageUrl) {
+    // Use NetworkImage directly - it works on both web and mobile
+    return NetworkImage(imageUrl);
+  }
+
   Future<void> _acceptEstimate() async {
     await _updateEstimateStatus(EstimateStatus.accepted);
   }
@@ -565,11 +571,24 @@ class _CustomerEstimateCardState extends State<CustomerEstimateCard> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.9,
-          height: MediaQuery.of(context).size.height * 0.8,
-          child: ServiceProfessionalProfileScreen(
-            professionalId: _professional!.id,
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.all(0),
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: 1080,
+              maxHeight: 1080,
+            ),
+            width: MediaQuery.of(context).size.width > 1080 
+                ? 1080 
+                : MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height > 1080 
+                ? 1080 
+                : MediaQuery.of(context).size.height * 0.9,
+            child: ServiceProfessionalProfileScreen(
+              professionalId: _professional!.id,
+              isCustomerView: true,
+            ),
           ),
         ),
       ),

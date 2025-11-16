@@ -15,3 +15,4 @@ export 'customer_estimate_card.dart';
 export 'map_picker_widget.dart';
 export 'embedded_map_widget.dart';
 export 'cached_image_widget.dart';
+export 'web_layout.dart';

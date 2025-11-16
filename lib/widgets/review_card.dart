@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/review_models.dart';
+import 'profile_avatar.dart';
 
 /// Card widget to display a single review
 class ReviewCard extends StatelessWidget {
@@ -28,19 +29,12 @@ class ReviewCard extends StatelessWidget {
             Row(
               children: [
                 // Reviewer profile photo
-                CircleAvatar(
+                ProfileAvatar(
+                  profilePhotoUrl: review.customerPhotoUrl,
                   radius: 20,
                   backgroundColor: Theme.of(context).colorScheme.primary,
-                  backgroundImage: review.customerPhotoUrl != null
-                      ? NetworkImage(review.customerPhotoUrl!)
-                      : null,
-                  child: review.customerPhotoUrl == null
-                      ? Icon(
-                          Icons.person,
-                          size: 20,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        )
-                      : null,
+                  fallbackIcon: Icons.person,
+                  fallbackIconColor: Theme.of(context).colorScheme.onPrimary,
                 ),
                 const SizedBox(width: 12),
                 
@@ -176,19 +170,12 @@ class ProfessionalReviewCard extends StatelessWidget {
             Row(
               children: [
                 // Professional profile photo
-                CircleAvatar(
+                ProfileAvatar(
+                  profilePhotoUrl: review.professionalPhotoUrl,
                   radius: 20,
                   backgroundColor: Theme.of(context).colorScheme.primary,
-                  backgroundImage: review.professionalPhotoUrl != null
-                      ? NetworkImage(review.professionalPhotoUrl!)
-                      : null,
-                  child: review.professionalPhotoUrl == null
-                      ? Icon(
-                          Icons.person,
-                          size: 20,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        )
-                      : null,
+                  fallbackIcon: Icons.person,
+                  fallbackIconColor: Theme.of(context).colorScheme.onPrimary,
                 ),
                 const SizedBox(width: 12),
                 

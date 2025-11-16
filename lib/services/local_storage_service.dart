@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 
 class LocalStorageService {
   static const String _userIdKey = 'user_id';
   static const String _themeModeKey = 'theme_mode';
   static const String _onboardingCompletedKey = 'onboarding_completed';
   static const String _userDataKey = 'user_data';
+  static const String _usernameKey = 'user_username';
+  static const String _profilePhotoUrlKey = 'user_profile_photo_url';
+  static const String _profilePhotoPathKey = 'user_profile_photo_path';
 
   // Get user ID
   static Future<String?> getUserId() async {
@@ -301,6 +306,153 @@ class LocalStorageService {
       }
       return null;
     } catch (e) {
+      return null;
+    }
+  }
+
+  // Enhanced username storage with validation
+  static Future<bool> saveUsername(String username) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Validate username before saving
+      if (username.trim().isEmpty || username.length < 3 || username.length > 20) {
+        return false;
+      }
+      return await prefs.setString(_usernameKey, username.trim());
+    } catch (e) {
+      print('Error saving username: $e');
+      return false;
+    }
+  }
+
+  static Future<String?> getUsername() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_usernameKey);
+    } catch (e) {
+      print('Error getting username: $e');
+      return null;
+    }
+  }
+
+  // Enhanced profile photo URL storage
+  static Future<bool> saveProfilePhotoUrl(String profilePhotoUrl) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setString(_profilePhotoUrlKey, profilePhotoUrl);
+    } catch (e) {
+      print('Error saving profile photo URL: $e');
+      return false;
+    }
+  }
+
+  static Future<String?> getProfilePhotoUrl() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_profilePhotoUrlKey);
+    } catch (e) {
+      print('Error getting profile photo URL: $e');
+      return null;
+    }
+  }
+
+  // Local profile photo file storage
+  static Future<String?> saveProfilePhotoFile(File imageFile) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final profileDir = Directory('${directory.path}/profile_photos');
+      
+      // Create directory if it doesn't exist
+      if (!await profileDir.exists()) {
+        await profileDir.create(recursive: true);
+      }
+      
+      final fileName = 'profile_photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final filePath = '${profileDir.path}/$fileName';
+      
+      // Copy the file to the new location
+      final newFile = await imageFile.copy(filePath);
+      
+      // Save the file path to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_profilePhotoPathKey, newFile.path);
+      
+      return newFile.path;
+    } catch (e) {
+      print('Error saving profile photo file: $e');
+      return null;
+    }
+  }
+
+  static Future<File?> getProfilePhotoFile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final filePath = prefs.getString(_profilePhotoPathKey);
+      
+      if (filePath != null) {
+        final file = File(filePath);
+        if (await file.exists()) {
+          return file;
+        } else {
+          // File doesn't exist, clear the stored path
+          await prefs.remove(_profilePhotoPathKey);
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error getting profile photo file: $e');
+      return null;
+    }
+  }
+
+  // Clear profile photo data
+  static Future<bool> clearProfilePhotoData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Clear the file path
+      final filePath = prefs.getString(_profilePhotoPathKey);
+      if (filePath != null) {
+        final file = File(filePath);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      
+      // Clear stored paths
+      await prefs.remove(_profilePhotoPathKey);
+      await prefs.remove(_profilePhotoUrlKey);
+      
+      return true;
+    } catch (e) {
+      print('Error clearing profile photo data: $e');
+      return false;
+    }
+  }
+
+  // Check if profile photo exists locally
+  static Future<bool> hasLocalProfilePhoto() async {
+    try {
+      final file = await getProfilePhotoFile();
+      return file != null && await file.exists();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Get profile photo for display (local file takes priority)
+  static Future<String?> getDisplayProfilePhoto() async {
+    try {
+      // First check for local file
+      final localFile = await getProfilePhotoFile();
+      if (localFile != null && await localFile.exists()) {
+        return localFile.path;
+      }
+      
+      // Fallback to URL
+      return await getProfilePhotoUrl();
+    } catch (e) {
+      print('Error getting display profile photo: $e');
       return null;
     }
   }

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 import '../services/image_cache_service.dart';
@@ -41,6 +42,10 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
   @override
   void initState() {
     super.initState();
+    // On web, skip file-based caching and use CachedNetworkImage directly
+    if (kIsWeb) {
+      return;
+    }
     if (widget.imageUrl != null && widget.enableCaching) {
       _loadCachedImage();
     }
@@ -142,6 +147,12 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
       return _buildErrorWidget();
     }
 
+    // On web, always use CachedNetworkImage directly (no file caching)
+    if (kIsWeb) {
+      return _buildNetworkImage();
+    }
+
+    // On mobile, use file-based caching if enabled
     // If we have a cached file, use it
     if (_cachedFile != null && _cachedFile!.existsSync()) {
       return _buildCachedImage();
@@ -203,7 +214,14 @@ class _CachedImageWidgetState extends State<CachedImageWidget> {
           height: widget.height,
           fit: widget.fit,
           placeholder: (context, url) => _buildLoadingWidget(),
-          errorWidget: (context, url, error) => _buildErrorWidget(),
+          errorWidget: (context, url, error) {
+            debugPrint('❌ [CachedImageWidget] Error loading image: $error');
+            debugPrint('❌ [CachedImageWidget] URL: $url');
+            return _buildErrorWidget();
+          },
+          httpHeaders: kIsWeb ? {
+            'Cache-Control': 'no-cache',
+          } : null,
         ),
       ),
     );

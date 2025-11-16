@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/service_professional.dart';
 import '../models/booking_models.dart';
+import 'comprehensive_notification_service.dart';
+import 'service_category_service.dart';
 
 class FirebaseFirestoreService {
   static final FirebaseFirestoreService _instance = FirebaseFirestoreService._internal();
@@ -8,6 +10,7 @@ class FirebaseFirestoreService {
   FirebaseFirestoreService._internal();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ComprehensiveNotificationService _notificationService = ComprehensiveNotificationService();
 
   // Collections
   CollectionReference get _usersCollection => _firestore.collection('users');
@@ -35,6 +38,178 @@ class FirebaseFirestoreService {
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error getting user bookings: $e');
       rethrow;
+    }
+  }
+
+  /// Search service professionals by name, category, or specialization
+  Future<List<ServiceProfessional>> searchServiceProfessionalsByName(String searchQuery) async {
+    try {
+      print('🔍 [FirebaseFirestoreService] Searching service professionals: $searchQuery');
+      
+      final query = searchQuery.trim().toLowerCase();
+      final List<ServiceProfessional> results = [];
+      
+      // First, try to find matching category IDs if query matches a category name
+      List<String>? matchingCategoryIds;
+      try {
+        final categoryService = ServiceCategoryService();
+        final allCategories = await categoryService.getAllCategories();
+        matchingCategoryIds = allCategories
+            .where((cat) => cat.name.toLowerCase().contains(query) || 
+                           query.contains(cat.name.toLowerCase()))
+            .map((cat) => cat.id)
+            .toList();
+        if (matchingCategoryIds.isNotEmpty) {
+          print('📋 [FirebaseFirestoreService] Found matching categories: $matchingCategoryIds');
+        }
+      } catch (e) {
+        print('⚠️ [FirebaseFirestoreService] Error fetching categories: $e');
+      }
+      
+      // Search in service_professionals collection
+      try {
+        QuerySnapshot snapshot;
+        if (matchingCategoryIds != null && matchingCategoryIds.isNotEmpty) {
+          // Search by category if we found matching categories
+          snapshot = await _serviceProfessionalsCollection
+              .where('isAvailable', isEqualTo: true)
+              .where('categoryIds', arrayContainsAny: matchingCategoryIds)
+              .get();
+        } else {
+          // Otherwise get all available professionals
+          snapshot = await _serviceProfessionalsCollection
+              .where('isAvailable', isEqualTo: true)
+              .get();
+        }
+        
+        for (var doc in snapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final fullName = (data['fullName'] ?? '').toString().toLowerCase();
+          final businessName = (data['businessName'] ?? '').toString().toLowerCase();
+          final specializations = (data['specializations'] as List<dynamic>?)
+              ?.map((s) => s.toString().toLowerCase())
+              .toList() ?? [];
+          final categoryIds = (data['categoryIds'] as List<dynamic>?)
+              ?.map((c) => c.toString())
+              .toList() ?? [];
+          
+          // Match if:
+          // 1. Query is empty (show all)
+          // 2. Name or business name contains query
+          // 3. Any specialization contains query
+          // 4. Category matches (already filtered above)
+          final matchesName = query.isEmpty || 
+              fullName.contains(query) || 
+              businessName.contains(query);
+          final matchesSpecialization = query.isEmpty || 
+              specializations.any((s) => s.contains(query));
+          final matchesCategory = matchingCategoryIds != null && 
+              matchingCategoryIds.isNotEmpty &&
+              categoryIds.any((id) => matchingCategoryIds!.contains(id));
+          
+          if (matchesName || matchesSpecialization || matchesCategory || query.isEmpty) {
+            try {
+              final professional = ServiceProfessional.fromMap(data, doc.id);
+              results.add(professional);
+            } catch (e) {
+              print('⚠️ [FirebaseFirestoreService] Error parsing professional ${doc.id}: $e');
+            }
+          }
+        }
+      } catch (e) {
+        print('⚠️ [FirebaseFirestoreService] Error searching service_professionals collection: $e');
+      }
+      
+      // Also search in users collection for service professionals
+      try {
+        QuerySnapshot snapshot;
+        if (matchingCategoryIds != null && matchingCategoryIds.isNotEmpty) {
+          snapshot = await _usersCollection
+              .where('role', isEqualTo: 'service_professional')
+              .where('categoryIds', arrayContainsAny: matchingCategoryIds)
+              .get();
+        } else {
+          snapshot = await _usersCollection
+              .where('role', isEqualTo: 'service_professional')
+              .get();
+        }
+        
+        for (var doc in snapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final fullName = (data['fullName'] ?? '').toString().toLowerCase();
+          final businessName = (data['businessName'] ?? '').toString().toLowerCase();
+          final specializations = (data['specializations'] as List<dynamic>?)
+              ?.map((s) => s.toString().toLowerCase())
+              .toList() ?? [];
+          final categoryIds = (data['categoryIds'] as List<dynamic>?)
+              ?.map((c) => c.toString())
+              .toList() ?? [];
+          
+          // Check if this is a complete service professional profile
+          final hasServiceProfessionalFields = data.containsKey('categoryIds') || 
+                                             data.containsKey('specializations') || 
+                                             data.containsKey('businessName');
+          
+          final matchesName = query.isEmpty || 
+              fullName.contains(query) || 
+              businessName.contains(query);
+          final matchesSpecialization = query.isEmpty || 
+              specializations.any((s) => s.contains(query));
+          final matchesCategory = matchingCategoryIds != null && 
+              matchingCategoryIds.isNotEmpty &&
+              categoryIds.any((id) => matchingCategoryIds!.contains(id));
+          
+          if (hasServiceProfessionalFields && 
+              (matchesName || matchesSpecialization || matchesCategory || query.isEmpty)) {
+            try {
+              final professional = ServiceProfessional.fromMap(data, doc.id);
+              results.add(professional);
+            } catch (e) {
+              print('⚠️ [FirebaseFirestoreService] Error parsing user professional ${doc.id}: $e');
+            }
+          }
+        }
+      } catch (e) {
+        print('⚠️ [FirebaseFirestoreService] Error searching users collection: $e');
+      }
+      
+      // Remove duplicates based on userId
+      final uniqueResults = <String, ServiceProfessional>{};
+      for (var professional in results) {
+        uniqueResults[professional.userId] = professional;
+      }
+      
+      final finalResults = uniqueResults.values.toList();
+      
+      // Sort by relevance (exact matches first, then partial matches)
+      finalResults.sort((a, b) {
+        final aName = a.fullName.toLowerCase();
+        final bName = b.fullName.toLowerCase();
+        final aBusiness = (a.businessName ?? '').toLowerCase();
+        final bBusiness = (b.businessName ?? '').toLowerCase();
+        
+        // Exact match in name gets highest priority
+        if (query.isNotEmpty) {
+          if (aName == query && bName != query) return -1;
+          if (bName == query && aName != query) return 1;
+          
+          // Exact match in business name gets second priority
+          if (aBusiness == query && bBusiness != query) return -1;
+          if (bBusiness == query && aBusiness != query) return 1;
+        }
+        
+        // Then sort by rating (highest first), then by name alphabetically
+        if (a.averageRating != b.averageRating) {
+          return b.averageRating.compareTo(a.averageRating);
+        }
+        return aName.compareTo(bName);
+      });
+      
+      print('✅ [FirebaseFirestoreService] Found ${finalResults.length} service professionals matching "$searchQuery"');
+      return finalResults;
+    } catch (e) {
+      print('❌ [FirebaseFirestoreService] Error searching service professionals: $e');
+      return [];
     }
   }
 
@@ -413,6 +588,34 @@ class FirebaseFirestoreService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
+      // Send notification to customer about new estimate
+      try {
+        // Get professional name for notification
+        final professionalDoc = await _serviceProfessionalsCollection.doc(professionalId).get();
+        final professionalName = professionalDoc.exists 
+            ? (professionalDoc.data() as Map<String, dynamic>)['businessName'] ?? 'Service Professional'
+            : 'Service Professional';
+        
+        // Get damage report for service title
+        final reportDoc = await _damageReportsCollection.doc(reportId).get();
+        final serviceTitle = reportDoc.exists 
+            ? (reportDoc.data() as Map<String, dynamic>)['description'] ?? 'Service Request'
+            : 'Service Request';
+        
+        await _notificationService.sendNewEstimateNotification(
+          customerId: ownerId,
+          professionalName: professionalName,
+          serviceTitle: serviceTitle,
+          price: cost,
+          estimateId: docRef.id,
+        );
+        
+        print('✅ [FirebaseFirestoreService] Estimate notification sent for estimate: ${docRef.id}');
+      } catch (e) {
+        print('⚠️ [FirebaseFirestoreService] Failed to send estimate notification: $e');
+        // Don't fail the estimate creation if notification fails
+      }
+      
       return docRef.id;
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error creating estimate: $e');
@@ -743,6 +946,31 @@ class FirebaseFirestoreService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
+      // Send notification to customer about new estimate
+      try {
+        // Get professional name for notification
+        final professionalDoc = await _serviceProfessionalsCollection.doc(professionalId).get();
+        final professionalName = professionalDoc.exists 
+            ? (professionalDoc.data() as Map<String, dynamic>)['businessName'] ?? 'Service Professional'
+            : 'Service Professional';
+        
+        // Get service title from job request
+        final serviceTitle = jobRequestData['title'] ?? 'Service Request';
+        
+        await _notificationService.sendNewEstimateNotification(
+          customerId: customerId,
+          professionalName: professionalName,
+          serviceTitle: serviceTitle,
+          price: cost,
+          estimateId: docRef.id,
+        );
+        
+        print('✅ [FirebaseFirestoreService] Estimate notification sent for service request estimate: ${docRef.id}');
+      } catch (e) {
+        print('⚠️ [FirebaseFirestoreService] Failed to send estimate notification: $e');
+        // Don't fail the estimate creation if notification fails
+      }
+      
       return docRef.id;
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error creating estimate for service request: $e');
@@ -915,6 +1143,36 @@ class FirebaseFirestoreService {
       };
       
       final docRef = await _firestore.collection('job_requests').add(completeRequestData);
+      
+      // Send notifications to relevant service professionals
+      try {
+        final categoryIds = completeRequestData['categoryIds'] as List<String>? ?? [];
+        final location = completeRequestData['location'] as String? ?? '';
+        final serviceTitle = completeRequestData['title'] as String? ?? 'Service Request';
+        
+        // Get professionals in the selected categories
+        final professionals = await getJobRequestsByCategories(categoryIds);
+        final professionalIds = professionals
+            .map((request) => request['professionalId'] as String?)
+            .where((id) => id != null)
+            .cast<String>()
+            .toList();
+        
+        if (professionalIds.isNotEmpty) {
+          await _notificationService.sendNewServiceRequestNotification(
+            professionalIds: professionalIds,
+            serviceCategory: serviceTitle,
+            location: location,
+            requestId: docRef.id,
+          );
+          
+          print('✅ [FirebaseFirestoreService] Service request notifications sent to ${professionalIds.length} professionals');
+        }
+      } catch (e) {
+        print('⚠️ [FirebaseFirestoreService] Failed to send service request notifications: $e');
+        // Don't fail the request creation if notification fails
+      }
+      
       return docRef.id;
     } catch (e) {
       print('❌ [FirebaseFirestoreService] Error creating job request: $e');

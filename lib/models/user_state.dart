@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
@@ -493,6 +494,51 @@ class UserState extends ChangeNotifier {
     }
   }
 
+  // Save profile picture file locally
+  Future<void> saveProfilePictureFile(File imageFile) async {
+    try {
+      _setLoading(true);
+      _clearError();
+
+      final savedPath = await LocalStorageService.saveProfilePhotoFile(imageFile);
+      if (savedPath != null) {
+        // Update the profile photo URL to point to the local file
+        _profilePhotoUrl = savedPath;
+        await _saveUserData();
+        
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (hasListeners) notifyListeners();
+        });
+      } else {
+        throw Exception('Failed to save profile picture file');
+      }
+    } catch (e) {
+      _setError('Profile picture file save failed: ${e.toString()}');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Get profile picture for display (local file takes priority)
+  Future<String?> getDisplayProfilePhoto() async {
+    try {
+      return await LocalStorageService.getDisplayProfilePhoto();
+    } catch (e) {
+      debugPrint('Error getting display profile photo: $e');
+      return _profilePhotoUrl;
+    }
+  }
+
+  // Check if profile photo exists locally
+  Future<bool> hasLocalProfilePhoto() async {
+    try {
+      return await LocalStorageService.hasLocalProfilePhoto();
+    } catch (e) {
+      debugPrint('Error checking local profile photo: $e');
+      return false;
+    }
+  }
+
   // Job management methods for repair professionals
   void addSubmittedEstimate(Estimate estimate) {
     if (_role == UserRole.repairman) {
@@ -742,6 +788,8 @@ class UserState extends ChangeNotifier {
       if (_phoneNumber != null) await LocalStorageService.saveUserPhone(_phoneNumber!);
       if (_role != null) await LocalStorageService.saveUserRole(_role.toString().split('.').last);
       if (_bio != null) await LocalStorageService.saveUserBio(_bio!);
+      if (_username != null) await LocalStorageService.saveUsername(_username!);
+      if (_profilePhotoUrl != null) await LocalStorageService.saveProfilePhotoUrl(_profilePhotoUrl!);
       await LocalStorageService.saveIsAuthenticated(_isAuthenticated);
       if (_lastLoginTime != null) await LocalStorageService.saveLastLoginTime(_lastLoginTime!);
     } catch (e) {
@@ -757,8 +805,8 @@ class UserState extends ChangeNotifier {
       final roleString = await LocalStorageService.getUserRole();
       final bio = await LocalStorageService.getUserBio();
       final fullName = await LocalStorageService.getUserFullName();
-      final username = await LocalStorageService.getUserUsername();
-      final profilePhotoUrl = await LocalStorageService.getUserProfilePhotoUrl();
+      final username = await LocalStorageService.getUsername(); // Use enhanced method
+      final profilePhotoUrl = await LocalStorageService.getProfilePhotoUrl(); // Use enhanced method
       final isAuthenticated = await LocalStorageService.getIsAuthenticated();
       final lastLoginTime = await LocalStorageService.getLastLoginTime();
 
@@ -777,8 +825,8 @@ class UserState extends ChangeNotifier {
         _isAuthenticated = isAuthenticated ?? false;
         _lastLoginTime = lastLoginTime;
         
-        // Load latest data from Firebase
-        await _refreshUserDataFromFirebase();
+        // Load latest data from Firebase (but don't override local data immediately)
+        _refreshUserDataFromFirebase();
         
         // Load service professional profile if applicable
         if (_role == UserRole.serviceProfessional) {
@@ -803,19 +851,43 @@ class UserState extends ChangeNotifier {
       final userProfile = await firestoreService.getUserProfile(_userId!);
       
       if (userProfile != null) {
-        // Update profile data from Firebase
-        _fullName = userProfile['fullName'];
-        _username = userProfile['username'];
-        _profilePhotoUrl = userProfile['profilePhotoUrl'];
-        _bio = userProfile['bio'];
+        bool hasChanges = false;
         
-        // Save updated data to local storage
-        if (_fullName != null) await LocalStorageService.saveUserFullName(_fullName!);
-        if (_username != null) await LocalStorageService.saveUserUsername(_username!);
-        if (_profilePhotoUrl != null) await LocalStorageService.saveUserProfilePhotoUrl(_profilePhotoUrl!);
-        if (_bio != null) await LocalStorageService.saveUserBio(_bio!);
+        // Update profile data from Firebase only if different from local storage
+        final firebaseFullName = userProfile['fullName'];
+        if (firebaseFullName != null && firebaseFullName != _fullName) {
+          _fullName = firebaseFullName;
+          await LocalStorageService.saveUserFullName(_fullName!);
+          hasChanges = true;
+        }
         
-        debugPrint('UserState: Refreshed user data from Firebase');
+        final firebaseUsername = userProfile['username'];
+        if (firebaseUsername != null && firebaseUsername != _username) {
+          _username = firebaseUsername;
+          await LocalStorageService.saveUsername(_username!);
+          hasChanges = true;
+        }
+        
+        final firebaseProfilePhotoUrl = userProfile['profilePhotoUrl'];
+        if (firebaseProfilePhotoUrl != null && firebaseProfilePhotoUrl != _profilePhotoUrl) {
+          _profilePhotoUrl = firebaseProfilePhotoUrl;
+          await LocalStorageService.saveProfilePhotoUrl(_profilePhotoUrl!);
+          hasChanges = true;
+        }
+        
+        final firebaseBio = userProfile['bio'];
+        if (firebaseBio != null && firebaseBio != _bio) {
+          _bio = firebaseBio;
+          await LocalStorageService.saveUserBio(_bio!);
+          hasChanges = true;
+        }
+        
+        if (hasChanges) {
+          debugPrint('UserState: Refreshed user data from Firebase');
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (hasListeners) notifyListeners();
+          });
+        }
       }
     } catch (e) {
       debugPrint('Failed to refresh user data from Firebase: $e');

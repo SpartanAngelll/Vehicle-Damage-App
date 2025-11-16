@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/user_state.dart';
+import 'profile_avatar.dart';
 
 class UserProfileWidget extends StatelessWidget {
   final double avatarRadius;
@@ -63,19 +64,12 @@ class UserProfileWidget extends StatelessWidget {
             padding: padding,
             child: Row(
               children: [
-                CircleAvatar(
+                ProfileAvatar(
+                  profilePhotoUrl: userState.profilePhotoUrl,
                   radius: avatarRadius,
                   backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  backgroundImage: userState.profilePhotoUrl != null
-                      ? NetworkImage(userState.profilePhotoUrl!)
-                      : null,
-                  child: userState.profilePhotoUrl == null
-                      ? Icon(
-                          Icons.person,
-                          size: avatarRadius,
-                          color: Theme.of(context).colorScheme.primary,
-                        )
-                      : null,
+                  fallbackIcon: Icons.person,
+                  fallbackIconColor: Theme.of(context).colorScheme.primary,
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -157,19 +151,12 @@ class CompactUserProfileWidget extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircleAvatar(
+              ProfileAvatar(
+                profilePhotoUrl: userState.profilePhotoUrl,
                 radius: avatarRadius,
                 backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                backgroundImage: userState.profilePhotoUrl != null
-                    ? NetworkImage(userState.profilePhotoUrl!)
-                    : null,
-                child: userState.profilePhotoUrl == null
-                    ? Icon(
-                        Icons.person,
-                        size: avatarRadius,
-                        color: Theme.of(context).colorScheme.primary,
-                      )
-                    : null,
+                fallbackIcon: Icons.person,
+                fallbackIconColor: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 8),
               Column(

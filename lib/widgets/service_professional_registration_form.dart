@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../services/firebase_firestore_service.dart';
+import '../services/profile_auto_fill_service.dart';
 import '../widgets/service_category_selector.dart';
 import '../widgets/image_upload_widget.dart';
 
@@ -44,6 +45,77 @@ class _ServiceProfessionalRegistrationFormState extends State<ServiceProfessiona
   void initState() {
     super.initState();
     _initializeSpecializationControllers();
+    _autoFillFromUserState();
+  }
+  
+  void _autoFillFromUserState() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final userState = context.read<UserState>();
+      
+      // Get auto-fill data and suggestions
+      final suggestions = ProfileAutoFillService.getSuggestedValues(userState);
+      
+      // Auto-fill form controllers
+      final controllers = {
+        'fullName': _fullNameController,
+        'phone': _phoneController,
+        'bio': _bioController,
+        'businessName': _businessNameController,
+        'businessAddress': _businessAddressController,
+        'businessPhone': _businessPhoneController,
+        'website': _websiteController,
+        'yearsExperience': _yearsExperienceController,
+      };
+      
+      ProfileAutoFillService.populateFormControllers(
+        controllers: controllers,
+        userState: userState,
+        suggestions: suggestions,
+      );
+      
+      // Set profile photo if available
+      if (userState.profilePhotoUrl != null) {
+        _profilePhotoUrl = userState.profilePhotoUrl;
+      }
+      
+      // Show suggestions to user if any
+      if (suggestions.isNotEmpty) {
+        _showAutoFillSuggestions(suggestions);
+      }
+    });
+  }
+  
+  void _showAutoFillSuggestions(Map<String, dynamic> suggestions) {
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Profile Suggestions'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('We\'ve found some information that might help complete your profile:'),
+              const SizedBox(height: 16),
+              if (suggestions['suggestedFullName'] != null)
+                Text('• Suggested name: ${suggestions['suggestedFullName']}'),
+              if (suggestions['suggestedUsername'] != null)
+                Text('• Suggested username: ${suggestions['suggestedUsername']}'),
+              if (suggestions['suggestedBusinessName'] != null)
+                Text('• Suggested business name: ${suggestions['suggestedBusinessName']}'),
+              const SizedBox(height: 16),
+              const Text('You can edit these suggestions in the form below.'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Got it'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _initializeSpecializationControllers() {

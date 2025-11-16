@@ -12,6 +12,7 @@ import '../screens/service_professional_profile_screen.dart';
 import '../screens/chat_screen.dart';
 import '../screens/my_bookings_screen.dart';
 import '../screens/cashout_screen.dart';
+import 'profile_avatar.dart';
 import 'glow_card.dart';
 import 'time_picker_widget.dart';
 import 'balances_button.dart';
@@ -450,13 +451,10 @@ class _RepairProfessionalDashboardState extends State<RepairProfessionalDashboar
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundImage: chatRoom.customerPhotoUrl != null
-                          ? NetworkImage(chatRoom.customerPhotoUrl!)
-                          : null,
-                      child: chatRoom.customerPhotoUrl == null
-                          ? Icon(Icons.person)
-                          : null,
+                    leading: ProfileAvatar(
+                      profilePhotoUrl: chatRoom.customerPhotoUrl,
+                      radius: 20,
+                      fallbackIcon: Icons.person,
                     ),
                     title: Text(
                       chatRoom.customerName,

@@ -4,9 +4,18 @@ import 'models/models.dart';
 import 'screens/screens.dart';
 import 'screens/customer_profile_setup_screen.dart';
 import 'screens/customer_edit_profile_screen.dart';
+import 'screens/search_professionals_screen.dart';
+import 'screens/chat_screen.dart';
+import 'screens/chat_list_screen.dart';
+import 'screens/service_professional_profile_screen.dart';
+import 'screens/homepage_screen.dart';
+import 'screens/my_service_requests_screen.dart';
+import 'screens/my_bookings_screen.dart';
+import 'screens/reviews_screen.dart';
 import 'theme/theme.dart';
 import 'services/services.dart';
 import 'services/firebase_firestore_service.dart';
+import 'services/chat_service.dart';
 import 'services/api_key_service.dart';
 import 'services/openai_service.dart';
 import 'services/network_connectivity_service.dart';
@@ -77,8 +86,10 @@ class VehicleDamageApp extends StatelessWidget {
           title: 'Multi-Service Professional Network',
           theme: themeProvider.currentTheme,
           themeMode: themeProvider.themeMode,
-          home: AuthWrapper(authService: authService),
+          initialRoute: '/',
           routes: {
+            '/': (context) => AuthWrapper(authService: authService),
+            '/homepage': (context) => HomepageScreen(),
             '/onboarding': (context) => OnboardingScreen(),
             '/permissions': (context) => PermissionRequestScreen(),
             '/login': (context) => LoginScreen(),
@@ -89,6 +100,78 @@ class VehicleDamageApp extends StatelessWidget {
             '/settings': (context) => SettingsScreen(),
             '/serviceProfessionalRegistration': (context) => ServiceProfessionalRegistrationScreen(),
             '/serviceRequest': (context) => ServiceRequestScreen(),
+            '/searchProfessionals': (context) => SearchProfessionalsScreen(),
+            '/bookingIntegrationExample': (context) => BookingIntegrationExample(),
+            '/serviceProfessionalProfile': (context) {
+              final args = ModalRoute.of(context)?.settings.arguments;
+              if (args is String) {
+                return Scaffold(
+                  backgroundColor: Colors.grey[900],
+                  body: Center(
+                    child: Container(
+                      constraints: BoxConstraints(
+                        maxWidth: 1080,
+                        maxHeight: 1080,
+                      ),
+                      width: MediaQuery.of(context).size.width > 1080 
+                          ? 1080 
+                          : MediaQuery.of(context).size.width,
+                      height: MediaQuery.of(context).size.height > 1080 
+                          ? 1080 
+                          : MediaQuery.of(context).size.height,
+                      child: ServiceProfessionalProfileScreen(professionalId: args),
+                    ),
+                  ),
+                );
+              }
+              return const Scaffold(
+                body: Center(child: Text('Invalid professional ID')),
+              );
+            },
+            '/chat': (context) {
+              final args = ModalRoute.of(context)?.settings.arguments;
+              if (args is String) {
+                // Load chat room info asynchronously
+                return FutureBuilder(
+                  future: ChatService().getChatRoom(args),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    
+                    if (snapshot.hasData && snapshot.data != null) {
+                      final chatRoom = snapshot.data!;
+                      final userState = Provider.of<UserState>(context, listen: false);
+                      final otherUserName = userState.isOwner
+                          ? chatRoom.professionalName
+                          : chatRoom.customerName;
+                      final otherUserPhotoUrl = userState.isOwner
+                          ? chatRoom.professionalPhotoUrl
+                          : chatRoom.customerPhotoUrl;
+                      
+                      return ChatScreen(
+                        chatRoomId: args,
+                        otherUserName: otherUserName,
+                        otherUserPhotoUrl: otherUserPhotoUrl,
+                      );
+                    }
+                    
+                    return const Scaffold(
+                      body: Center(child: Text('Chat room not found')),
+                    );
+                  },
+                );
+              }
+              return const Scaffold(
+                body: Center(child: Text('Invalid chat room ID')),
+              );
+            },
+            '/chatList': (context) => ChatListScreen(),
+            '/myServiceRequests': (context) => MyServiceRequestsScreen(),
+            '/myBookings': (context) => MyBookingsScreen(),
+            '/reviews': (context) => ReviewsScreen(),
           },
         );
       },
@@ -334,8 +417,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
 
-        // User is not signed in, show splash screen
-        return SplashScreen();
+        // User is not signed in, show homepage
+        return HomepageScreen();
       },
     );
   }

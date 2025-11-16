@@ -356,18 +356,38 @@ class _LoginScreenState extends State<LoginScreen> {
     await authService.resetPassword(_emailController.text.trim());
     
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Password reset email sent! Check your inbox.'),
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      
-      setState(() {
-        _isPasswordReset = false;
-        _clearControllers();
-      });
+      if (authService.error != null) {
+        // Show error message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authService.error!),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Dismiss',
+              textColor: Theme.of(context).colorScheme.onError,
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
+          ),
+        );
+      } else {
+        // Success
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Password reset email sent! Check your inbox.'),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        
+        setState(() {
+          _isPasswordReset = false;
+          _clearControllers();
+        });
+      }
     }
   }
 
@@ -377,6 +397,29 @@ class _LoginScreenState extends State<LoginScreen> {
       password: _passwordController.text,
       userType: _selectedRole,
     );
+
+    if (credential == null && mounted) {
+      // Sign up failed - show error message
+      final errorMessage = authService.error ?? 'Sign up failed. Please try again.';
+      debugPrint('❌ [Login] Sign up failed: $errorMessage');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Dismiss',
+            textColor: Theme.of(context).colorScheme.onError,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
+        ),
+      );
+      return;
+    }
 
     if (credential != null && mounted) {
       // Create user profile in Firestore
@@ -414,6 +457,29 @@ class _LoginScreenState extends State<LoginScreen> {
       email: _emailController.text.trim(),
       password: _passwordController.text,
     );
+
+    if (credential == null && mounted) {
+      // Authentication failed - show error message
+      final errorMessage = authService.error ?? 'Login failed. Please check your credentials and try again.';
+      debugPrint('❌ [Login] Authentication failed: $errorMessage');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Dismiss',
+            textColor: Theme.of(context).colorScheme.onError,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
+        ),
+      );
+      return;
+    }
 
     if (credential != null && mounted) {
       // Get user profile to determine role

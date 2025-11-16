@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/models.dart';
 import '../models/review_models.dart';
 import '../widgets/widgets.dart';
+import '../widgets/profile_avatar.dart';
+import '../widgets/profile_completion_indicator.dart';
 import '../utils/responsive_utils.dart';
 import '../services/services.dart';
 import '../services/firebase_firestore_service.dart';
@@ -49,6 +52,34 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   
   @override
   Widget build(BuildContext context) {
+    final isWeb = kIsWeb;
+    
+    // On web, use the web layout wrapper
+    if (isWeb) {
+      final screenWidth = MediaQuery.of(context).size.width;
+      final maxContentWidth = (screenWidth > 1400 ? 1200.0 : 1100.0);
+      
+      return WebLayout(
+        currentRoute: _selectedIndex == 2 ? '/ownerDashboard?tab=estimates' : '/ownerDashboard',
+        onNavigate: (route) {
+          if (route == '/serviceRequest') {
+            Navigator.pushNamed(context, route);
+          } else {
+            // Update internal state for dashboard tabs
+            _handleWebNavigation(route);
+          }
+        },
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(maxWidth: maxContentWidth),
+            width: double.infinity,
+            child: _getBody(),
+          ),
+        ),
+      );
+    }
+    
+    // On mobile, use the original layout
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -136,6 +167,46 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       ),
     );
   }
+  
+  void _handleWebNavigation(String route) {
+    // Check if route has query parameters for tab selection
+    if (route.contains('?')) {
+      final uri = Uri.parse(route);
+      final tab = uri.queryParameters['tab'];
+      if (tab == 'estimates') {
+        print('🔍 [OwnerDashboard] Switching to Estimates tab');
+        setState(() {
+          _selectedIndex = 2;
+        });
+        return;
+      }
+    }
+    
+    // Handle plain /ownerDashboard route (home tab)
+    if (route == '/ownerDashboard' || (route.startsWith('/ownerDashboard') && !route.contains('tab='))) {
+      setState(() {
+        _selectedIndex = 0;
+      });
+      return;
+    }
+    
+    switch (route) {
+      case '/myServiceRequests':
+        Navigator.pushNamed(context, route);
+        break;
+      case '/chat':
+        Navigator.pushNamed(context, route);
+        break;
+      case '/myBookings':
+        Navigator.pushNamed(context, route);
+        break;
+      case '/reviews':
+        Navigator.pushNamed(context, route);
+        break;
+      default:
+        Navigator.pushNamed(context, route);
+    }
+  }
 
   Widget _getBody() {
     switch (_selectedIndex) {
@@ -212,10 +283,28 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         // Instructional overlay at the top
         const InstructionalOverlay(),
         
+        // Search professionals button
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ElevatedButton.icon(
+            onPressed: () => Navigator.pushNamed(context, '/searchProfessionals'),
+            icon: Icon(Icons.search),
+            label: Text('Search Professionals'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+        
         // Auto-scrolling services
         Expanded(
           child: Container(
-            margin: const EdgeInsets.only(top: 16),
+            margin: const EdgeInsets.only(top: 8),
             child: const AutoScrollingServices(),
           ),
         ),
@@ -257,19 +346,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     children: [
                       Row(
                         children: [
-                          CircleAvatar(
+                          ProfileAvatar(
+                            profilePhotoUrl: userState.profilePhotoUrl,
                             radius: 40,
-                            backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                            backgroundImage: userState.profilePhotoUrl != null
-                                ? NetworkImage(userState.profilePhotoUrl!)
-                                : null,
-                            child: userState.profilePhotoUrl == null
-                                ? Icon(
-                                    Icons.person,
-                                    size: 40,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  )
-                                : null,
                           ),
                           SizedBox(width: 16),
                           Expanded(
@@ -305,7 +384,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                       ),
                       SizedBox(height: 24),
                       _buildProfileInfoRow(context, 'Email', userState.email ?? 'Not provided'),
-                      _buildProfileInfoRow(context, 'User ID', userState.userId ?? 'Not available'),
                       _buildProfileInfoRow(context, 'Account Type', 'Customer'),
                       
                       SizedBox(height: 16),
@@ -329,6 +407,16 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     ],
                   ),
                 ),
+              ),
+              
+              SizedBox(height: 24),
+              
+              // Profile Completion Indicator
+              ProfileCompletionIndicator(
+                userState: userState,
+                onTap: () {
+                  Navigator.pushNamed(context, '/customerEditProfile');
+                },
               ),
               
               SizedBox(height: 24),
@@ -360,73 +448,102 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           );
         }
 
-        return FutureBuilder<List<Estimate>>(
-          key: ValueKey('estimates_$_refreshCounter'),
-          future: _loadUserEstimates(userState.userId!),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return Center(child: CircularProgressIndicator());
-            }
-
-            if (snapshot.hasError) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error, size: 64, color: Colors.red),
-                    SizedBox(height: 16),
-                    Text('Error loading estimates: ${snapshot.error}'),
-                    SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => setState(() {}),
-                      child: Text('Retry'),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            final estimates = snapshot.data ?? [];
-
-            if (estimates.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.assessment_outlined, size: 64, color: Colors.grey),
-                    SizedBox(height: 16),
-                    Text(
-                      'No estimates received yet',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Estimates from professionals will appear here once you submit service requests.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              );
-            }
-
-                        return ListView.builder(
-              padding: EdgeInsets.all(16),
-              itemCount: estimates.length,
-              itemBuilder: (context, index) {
-                final estimate = estimates[index];
-                return CustomerEstimateCard(
-                  estimate: estimate,
-                  onStatusChanged: () {
-                    // Refresh both estimates and service requests when status changes
-                    setState(() {
-                      _refreshCounter++;
-                    });
-                  },
-                );
-              },
-            );
+        return RefreshIndicator(
+          onRefresh: () async {
+            setState(() {
+              _refreshCounter++;
+            });
           },
+          child: FutureBuilder<List<Estimate>>(
+            key: ValueKey('estimates_$_refreshCounter'),
+            future: _loadUserEstimates(userState.userId!),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Center(child: CircularProgressIndicator());
+              }
+
+              if (snapshot.hasError) {
+                return SingleChildScrollView(
+                  physics: AlwaysScrollableScrollPhysics(),
+                  child: Container(
+                    height: MediaQuery.of(context).size.height - 200,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error, size: 64, color: Colors.red),
+                          SizedBox(height: 16),
+                          Text('Error loading estimates: ${snapshot.error}'),
+                          SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                _refreshCounter++;
+                              });
+                            },
+                            child: Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final estimates = snapshot.data ?? [];
+
+              if (estimates.isEmpty) {
+                return SingleChildScrollView(
+                  physics: AlwaysScrollableScrollPhysics(),
+                  child: Container(
+                    height: MediaQuery.of(context).size.height - 200,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.assessment_outlined, size: 64, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text(
+                            'No estimates received yet',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          SizedBox(height: 8),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              'Estimates from professionals will appear here once you submit service requests.',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                padding: EdgeInsets.all(16),
+                itemCount: estimates.length,
+                itemBuilder: (context, index) {
+                  final estimate = estimates[index];
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: 16),
+                    child: CustomerEstimateCard(
+                      estimate: estimate,
+                      onStatusChanged: () {
+                        // Refresh both estimates and service requests when status changes
+                        setState(() {
+                          _refreshCounter++;
+                        });
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         );
       },
     );

@@ -1,6 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/image_service.dart';
+import '../services/platform_image_service.dart';
 import '../services/storage_service.dart';
 import '../models/image_quality.dart';
 
@@ -30,6 +35,7 @@ class ImageUploadWidget extends StatefulWidget {
 
 class _ImageUploadWidgetState extends State<ImageUploadWidget> {
   final List<File> _selectedImages = [];
+  final List<Uint8List> _selectedImageBytes = []; // For web
   final List<String> _uploadedImageUrls = [];
   bool _isUploading = false;
   double _uploadProgress = 0.0;
@@ -239,21 +245,43 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
                       width: double.infinity,
                       height: double.infinity,
                     )
-                  : Image.network(
-                      _uploadedImageUrls[imageIndex],
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: Colors.grey[300],
-                          child: const Icon(
-                            Icons.error,
-                            color: Colors.red,
+                  : (kIsWeb 
+                      ? CachedNetworkImage(
+                          imageUrl: _uploadedImageUrls[imageIndex],
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                           ),
-                        );
-                      },
-                    ),
+                          errorWidget: (context, url, error) {
+                            return Container(
+                              color: Colors.grey[300],
+                              child: const Icon(
+                                Icons.error,
+                                color: Colors.red,
+                              ),
+                            );
+                          },
+                        )
+                      : Image.network(
+                          _uploadedImageUrls[imageIndex],
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey[300],
+                              child: const Icon(
+                                Icons.error,
+                                color: Colors.red,
+                              ),
+                            );
+                          },
+                        )),
             ),
             // Remove button
             Positioned(
@@ -343,16 +371,41 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
 
   Future<void> _pickImagesFromGallery() async {
     try {
-      final images = await ImageService.pickMultipleImagesFromGallery(
-        quality: _selectedQuality,
-        maxImages: widget.maxImages - _selectedImages.length,
-      );
-      
-      if (images.isNotEmpty) {
-        setState(() {
-          _selectedImages.addAll(images);
-        });
-        widget.onImagesSelected(_selectedImages);
+      if (kIsWeb) {
+        // On web, pick images one at a time using PlatformImageService
+        final remainingSlots = widget.maxImages - (_selectedImages.length + _selectedImageBytes.length);
+        if (remainingSlots <= 0) {
+          _showError('Maximum ${widget.maxImages} images allowed');
+          return;
+        }
+        
+        // Pick one image at a time on web
+        final bytes = await PlatformImageService.pickImage(
+          source: ImageSource.gallery,
+          quality: _selectedQuality,
+        );
+        
+        if (bytes != null) {
+          setState(() {
+            _selectedImageBytes.add(bytes);
+          });
+          // Convert to File-like structure for compatibility
+          // On web, we'll handle upload differently
+          await _uploadWebImage(bytes);
+        }
+      } else {
+        // On mobile, use the existing File-based approach
+        final images = await ImageService.pickMultipleImagesFromGallery(
+          quality: _selectedQuality,
+          maxImages: widget.maxImages - _selectedImages.length,
+        );
+        
+        if (images.isNotEmpty) {
+          setState(() {
+            _selectedImages.addAll(images);
+          });
+          widget.onImagesSelected(_selectedImages);
+        }
       }
     } catch (e) {
       _showError('Failed to pick images: $e');
@@ -361,19 +414,71 @@ class _ImageUploadWidgetState extends State<ImageUploadWidget> {
 
   Future<void> _pickImagesFromCamera() async {
     try {
-      final images = await ImageService.pickMultipleImagesFromCamera(
-        quality: _selectedQuality,
-        maxImages: widget.maxImages - _selectedImages.length,
-      );
-      
-      if (images.isNotEmpty) {
-        setState(() {
-          _selectedImages.addAll(images);
-        });
-        widget.onImagesSelected(_selectedImages);
+      if (kIsWeb) {
+        // On web, camera access is limited - pick one image at a time
+        final remainingSlots = widget.maxImages - (_selectedImages.length + _selectedImageBytes.length);
+        if (remainingSlots <= 0) {
+          _showError('Maximum ${widget.maxImages} images allowed');
+          return;
+        }
+        
+        final bytes = await PlatformImageService.pickImage(
+          source: ImageSource.camera,
+          quality: _selectedQuality,
+        );
+        
+        if (bytes != null) {
+          setState(() {
+            _selectedImageBytes.add(bytes);
+          });
+          await _uploadWebImage(bytes);
+        }
+      } else {
+        // On mobile, use the existing File-based approach
+        final images = await ImageService.pickMultipleImagesFromCamera(
+          quality: _selectedQuality,
+          maxImages: widget.maxImages - _selectedImages.length,
+        );
+        
+        if (images.isNotEmpty) {
+          setState(() {
+            _selectedImages.addAll(images);
+          });
+          widget.onImagesSelected(_selectedImages);
+        }
       }
     } catch (e) {
       _showError('Failed to take photos: $e');
+    }
+  }
+
+  Future<void> _uploadWebImage(Uint8List imageBytes) async {
+    try {
+      setState(() {
+        _isUploading = true;
+        _uploadProgress = 0.0;
+        _uploadError = null;
+      });
+
+      // Upload image bytes directly to Firebase Storage
+      final imageUrl = await StorageService.uploadImageBytes(
+        imageBytes: imageBytes,
+        path: 'service_requests/temp_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+
+      setState(() {
+        _uploadedImageUrls.add(imageUrl);
+        _isUploading = false;
+        _uploadProgress = 1.0;
+      });
+
+      widget.onImagesUploaded(_uploadedImageUrls);
+    } catch (e) {
+      setState(() {
+        _isUploading = false;
+        _uploadError = 'Upload failed: $e';
+      });
+      _showError('Failed to upload image: $e');
     }
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_state.dart';
@@ -19,6 +20,7 @@ import '../widgets/mock_payment_dialog.dart';
 import '../widgets/deposit_request_dialog.dart';
 import '../widgets/balance_payment_dialog.dart';
 import '../widgets/review_submission_dialog.dart';
+import '../widgets/web_layout.dart';
 import '../models/review_models.dart';
 import '../services/review_service.dart';
 
@@ -126,6 +128,48 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWeb = kIsWeb;
+
+    if (isWeb) {
+      final screenWidth = MediaQuery.of(context).size.width;
+      final maxContentWidth = (screenWidth > 1400 ? 1200.0 : 1100.0);
+
+      return WebLayout(
+        currentRoute: '/myBookings',
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(maxWidth: maxContentWidth),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'My Bookings',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.refresh),
+                      onPressed: _loadBookings,
+                      tooltip: 'Refresh',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Expanded(
+                  child: _buildBody(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Bookings'),

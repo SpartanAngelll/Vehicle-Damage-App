@@ -1038,8 +1038,26 @@ class _OwnerLiveEstimatesWidgetState extends State<OwnerLiveEstimatesWidget>
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ServiceProfessionalProfileScreen(
-            professionalId: professionalId,
+          builder: (context) => Scaffold(
+            backgroundColor: Colors.grey[900],
+            body: Center(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: 1080,
+                  maxHeight: 1080,
+                ),
+                width: MediaQuery.of(context).size.width > 1080 
+                    ? 1080 
+                    : MediaQuery.of(context).size.width,
+                height: MediaQuery.of(context).size.height > 1080 
+                    ? 1080 
+                    : MediaQuery.of(context).size.height,
+                child: ServiceProfessionalProfileScreen(
+                  professionalId: professionalId,
+                  isCustomerView: true,
+                ),
+              ),
+            ),
           ),
         ),
       );

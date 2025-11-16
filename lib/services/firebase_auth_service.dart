@@ -78,11 +78,28 @@ class FirebaseAuthService extends ChangeNotifier {
       _setLoading(false);
       return credential;
     } on FirebaseAuthException catch (e) {
-      _setError(_getErrorMessage(e.code));
+      final errorMessage = _getErrorMessage(e.code);
+      debugPrint('❌ [FirebaseAuth] Sign in error: ${e.code} - ${e.message}');
+      _setError(errorMessage);
       _setLoading(false);
       return null;
     } catch (e) {
-      _setError('An unexpected error occurred: ${e.toString()}');
+      // Handle network errors and other exceptions
+      final errorString = e.toString().toLowerCase();
+      String errorMessage;
+      
+      if (errorString.contains('network') || 
+          errorString.contains('timeout') ||
+          errorString.contains('unreachable') ||
+          errorString.contains('connection') ||
+          errorString.contains('unavailable')) {
+        errorMessage = 'Network error: Please check your internet connection and try again.';
+      } else {
+        errorMessage = 'An unexpected error occurred: ${e.toString()}';
+      }
+      
+      debugPrint('❌ [FirebaseAuth] Unexpected sign in error: $e');
+      _setError(errorMessage);
       _setLoading(false);
       return null;
     }
@@ -184,7 +201,20 @@ class FirebaseAuthService extends ChangeNotifier {
         return 'Too many failed attempts. Please try again later.';
       case 'operation-not-allowed':
         return 'This operation is not allowed.';
+      case 'network-request-failed':
+      case 'network_error':
+      case 'UNAVAILABLE':
+        return 'Network error: Please check your internet connection and try again.';
+      case 'SERVICE_NOT_AVAILABLE':
+        return 'Firebase service is temporarily unavailable. Please try again later.';
       default:
+        // Check if the error message contains network-related keywords
+        if (code.toLowerCase().contains('network') || 
+            code.toLowerCase().contains('timeout') ||
+            code.toLowerCase().contains('unreachable') ||
+            code.toLowerCase().contains('connection')) {
+          return 'Network error: Please check your internet connection and try again.';
+        }
         return 'Authentication failed: $code';
     }
   }

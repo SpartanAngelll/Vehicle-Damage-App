@@ -23,7 +23,20 @@ class StorageService {
     try {
       // Read image file
       final bytes = await imageFile.readAsBytes();
-      final image = img.decodeImage(bytes);
+      return await compressImageBytes(bytes, maxWidth: maxWidth, maxHeight: maxHeight, quality: quality);
+    } catch (e) {
+      throw Exception('Image compression failed: $e');
+    }
+  }
+
+  // Compress image from bytes (works on both web and mobile)
+  static Future<Uint8List> compressImageBytes(Uint8List imageBytes, {
+    int maxWidth = 1024,
+    int maxHeight = 1024,
+    int quality = 85,
+  }) async {
+    try {
+      final image = img.decodeImage(imageBytes);
       
       if (image == null) {
         throw Exception('Failed to decode image');
@@ -57,6 +70,46 @@ class StorageService {
       return Uint8List.fromList(compressedBytes);
     } catch (e) {
       throw Exception('Image compression failed: $e');
+    }
+  }
+
+  // Upload image bytes directly (for web)
+  static Future<String> uploadImageBytes({
+    required Uint8List imageBytes,
+    required String path,
+    int maxWidth = 1024,
+    int maxHeight = 1024,
+    int quality = 85,
+  }) async {
+    try {
+      // Compress image bytes
+      final compressedBytes = await compressImageBytes(
+        imageBytes,
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+        quality: quality,
+      );
+      
+      // Upload to Firebase Storage
+      final imageRef = _storage.ref(path);
+      final uploadTask = imageRef.putData(
+        compressedBytes,
+        SettableMetadata(
+          contentType: 'image/jpeg',
+          customMetadata: {
+            'uploadedAt': DateTime.now().toIso8601String(),
+            'compressed': 'true',
+          },
+        ),
+      );
+      
+      // Wait for upload to complete
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      
+      return downloadUrl;
+    } catch (e) {
+      throw Exception('Failed to upload image: $e');
     }
   }
 
@@ -187,25 +240,66 @@ class StorageService {
     }
   }
 
-  // Upload user profile image
+  // Upload user profile image (mobile - File)
   static Future<String?> uploadUserProfileImage({
     required String userId,
     required File imageFile,
   }) async {
     try {
-      final fileName = 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final imageRef = _userProfilesRef.child(userId).child(fileName);
-      
       // Compress image before upload
       final compressedImage = await compressImage(imageFile, maxWidth: 512, maxHeight: 512);
       
+      return await _uploadUserProfileImageBytes(
+        userId: userId,
+        imageBytes: compressedImage,
+        originalName: path.basename(imageFile.path),
+      );
+    } catch (e) {
+      throw Exception('Failed to upload profile image: $e');
+    }
+  }
+
+  // Upload user profile image from bytes (web-compatible)
+  static Future<String?> uploadUserProfileImageFromBytes({
+    required String userId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
+      // Compress image before upload
+      final compressedImage = await compressImageBytes(
+        imageBytes,
+        maxWidth: 512,
+        maxHeight: 512,
+        quality: 85,
+      );
+      
+      return await _uploadUserProfileImageBytes(
+        userId: userId,
+        imageBytes: compressedImage,
+        originalName: 'profile_image.jpg',
+      );
+    } catch (e) {
+      throw Exception('Failed to upload profile image: $e');
+    }
+  }
+
+  // Internal method to upload profile image bytes
+  static Future<String?> _uploadUserProfileImageBytes({
+    required String userId,
+    required Uint8List imageBytes,
+    required String originalName,
+  }) async {
+    try {
+      final fileName = 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final imageRef = _userProfilesRef.child(userId).child(fileName);
+      
       // Upload compressed image
       final uploadTask = imageRef.putData(
-        compressedImage,
+        imageBytes,
         SettableMetadata(
           contentType: 'image/jpeg',
           customMetadata: {
-            'originalName': path.basename(imageFile.path),
+            'originalName': originalName,
             'uploadedAt': DateTime.now().toIso8601String(),
             'compressed': 'true',
           },
@@ -218,7 +312,7 @@ class StorageService {
       
       return downloadUrl;
     } catch (e) {
-      throw Exception('Failed to upload profile image: $e');
+      throw Exception('Failed to upload profile image bytes: $e');
     }
   }
 
@@ -307,7 +401,7 @@ class StorageService {
     return getFileSizeInMB(file) <= maxSizeMB;
   }
 
-  // Upload cover photo for service professional
+  // Upload cover photo for service professional (mobile - File)
   static Future<String?> uploadCoverPhoto({
     required String professionalId,
     required File imageFile,
@@ -326,6 +420,51 @@ class StorageService {
         quality: 85,
       );
 
+      return await _uploadCoverPhotoBytes(
+        professionalId: professionalId,
+        imageBytes: compressedBytes,
+      );
+    } catch (e) {
+      debugPrint('Error uploading cover photo: $e');
+      return null;
+    }
+  }
+
+  // Upload cover photo from bytes (web-compatible)
+  static Future<String?> uploadCoverPhotoFromBytes({
+    required String professionalId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
+      // Validate file size (approximate - 5MB limit)
+      if (imageBytes.length > 5 * 1024 * 1024) {
+        throw Exception('Cover photo file size must be less than 5MB');
+      }
+
+      // Compress image for cover photo (wider aspect ratio)
+      final compressedBytes = await compressImageBytes(
+        imageBytes,
+        maxWidth: 1200,
+        maxHeight: 400,
+        quality: 85,
+      );
+
+      return await _uploadCoverPhotoBytes(
+        professionalId: professionalId,
+        imageBytes: compressedBytes,
+      );
+    } catch (e) {
+      debugPrint('Error uploading cover photo: $e');
+      return null;
+    }
+  }
+
+  // Internal method to upload cover photo bytes
+  static Future<String?> _uploadCoverPhotoBytes({
+    required String professionalId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
       // Generate unique filename
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = 'cover_photo_${professionalId}_$timestamp.jpg';
@@ -333,7 +472,7 @@ class StorageService {
 
       // Upload compressed image
       final uploadTask = ref.putData(
-        compressedBytes,
+        imageBytes,
         SettableMetadata(
           contentType: 'image/jpeg',
           customMetadata: {
@@ -350,12 +489,12 @@ class StorageService {
       debugPrint('Cover photo uploaded successfully: $downloadUrl');
       return downloadUrl;
     } catch (e) {
-      debugPrint('Error uploading cover photo: $e');
+      debugPrint('Error uploading cover photo bytes: $e');
       return null;
     }
   }
 
-  // Upload work showcase image
+  // Upload work showcase image (mobile - File)
   static Future<String?> uploadWorkShowcaseImage({
     required String professionalId,
     required File imageFile,
@@ -374,6 +513,51 @@ class StorageService {
         quality: 80,
       );
 
+      return await _uploadWorkShowcaseBytes(
+        professionalId: professionalId,
+        imageBytes: compressedBytes,
+      );
+    } catch (e) {
+      debugPrint('Error uploading work showcase image: $e');
+      return null;
+    }
+  }
+
+  // Upload work showcase image from bytes (web-compatible)
+  static Future<String?> uploadWorkShowcaseImageFromBytes({
+    required String professionalId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
+      // Validate file size (approximate - 5MB limit)
+      if (imageBytes.length > 5 * 1024 * 1024) {
+        throw Exception('Work showcase image file size must be less than 5MB');
+      }
+
+      // Compress image for work showcase
+      final compressedBytes = await compressImageBytes(
+        imageBytes,
+        maxWidth: 800,
+        maxHeight: 600,
+        quality: 80,
+      );
+
+      return await _uploadWorkShowcaseBytes(
+        professionalId: professionalId,
+        imageBytes: compressedBytes,
+      );
+    } catch (e) {
+      debugPrint('Error uploading work showcase image: $e');
+      return null;
+    }
+  }
+
+  // Internal method to upload work showcase bytes
+  static Future<String?> _uploadWorkShowcaseBytes({
+    required String professionalId,
+    required Uint8List imageBytes,
+  }) async {
+    try {
       // Generate unique filename
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = 'work_showcase_${professionalId}_$timestamp.jpg';
@@ -381,7 +565,7 @@ class StorageService {
 
       // Upload compressed image
       final uploadTask = ref.putData(
-        compressedBytes,
+        imageBytes,
         SettableMetadata(
           contentType: 'image/jpeg',
           customMetadata: {
@@ -398,7 +582,7 @@ class StorageService {
       debugPrint('Work showcase image uploaded successfully: $downloadUrl');
       return downloadUrl;
     } catch (e) {
-      debugPrint('Error uploading work showcase image: $e');
+      debugPrint('Error uploading work showcase bytes: $e');
       return null;
     }
   }

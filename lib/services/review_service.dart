@@ -16,7 +16,7 @@ class ReviewService {
   CollectionReference get _customerReviewsCollection => _firestore.collection('reviews');
   CollectionReference get _professionalReviewsCollection => _firestore.collection('professional_reviews');
   CollectionReference get _bookingsCollection => _firestore.collection('bookings');
-  CollectionReference get _professionalsCollection => _firestore.collection(' service_professionals');
+  CollectionReference get _professionalsCollection => _firestore.collection('service_professionals');
 
   /// Submit a customer review for a service professional
   Future<CustomerReview> submitCustomerReview({
@@ -147,17 +147,23 @@ class ReviewService {
   /// Get all reviews for a service professional
   Future<List<CustomerReview>> getProfessionalReviews(String professionalId) async {
     try {
+      print('🔍 [ReviewService] Fetching reviews for professional: $professionalId');
       final snapshot = await _customerReviewsCollection
           .where('professionalId', isEqualTo: professionalId)
           .orderBy('createdAt', descending: true)
           .get();
 
+      print('✅ [ReviewService] Successfully fetched ${snapshot.docs.length} reviews for professional: $professionalId');
       return snapshot.docs
           .map((doc) => CustomerReview.fromMap(doc.data() as Map<String, dynamic>, doc.id))
           .toList();
     } catch (e) {
-      print('❌ [ReviewService] Error getting professional reviews: $e');
-      return [];
+      print('❌ [ReviewService] Error getting professional reviews for $professionalId: $e');
+      print('❌ [ReviewService] Error type: ${e.runtimeType}');
+      if (e.toString().contains('permission') || e.toString().contains('Permission')) {
+        print('⚠️ [ReviewService] Permission error detected - make sure Firestore rules allow public read access');
+      }
+      rethrow; // Re-throw to let the caller handle it
     }
   }
 
@@ -210,6 +216,7 @@ class ReviewService {
       );
     } catch (e) {
       print('❌ [ReviewService] Error getting professional rating stats: $e');
+      // Return empty stats instead of rethrowing to prevent UI crashes
       return RatingStats(
         averageRating: 0.0,
         totalReviews: 0,

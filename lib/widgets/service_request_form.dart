@@ -23,19 +23,21 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _budgetController = TextEditingController();
+  final _budgetController = TextEditingController(); // Deprecated: kept for backward compatibility
   final _locationController = TextEditingController();
   final _priorityController = TextEditingController();
   
   List<File> _selectedImages = [];
   List<String> _uploadedImageUrls = [];
   List<String> _selectedCategoryIds = [];
-  Map<String, dynamic> _customFields = {};
+  Map<String, dynamic> _customFields = {}; // Deprecated: kept for backward compatibility
   bool _isSubmitting = false;
   String? _errorMessage;
 
   // Category-specific field controllers
   final Map<String, TextEditingController> _categoryControllers = {};
+  // Per-category budget controllers
+  final Map<String, TextEditingController> _categoryBudgetControllers = {};
   
   // Scroll controller to preserve scroll position
   final ScrollController _scrollController = ScrollController();
@@ -97,6 +99,19 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
     // Set default priority
     _priorityController.text = 'Medium';
   }
+  
+  // Initialize budget controller for a category
+  void _initializeCategoryBudgetController(String categoryId) {
+    if (!_categoryBudgetControllers.containsKey(categoryId)) {
+      _categoryBudgetControllers[categoryId] = TextEditingController();
+    }
+  }
+  
+  // Dispose budget controller for a category
+  void _disposeCategoryBudgetController(String categoryId) {
+    _categoryBudgetControllers[categoryId]?.dispose();
+    _categoryBudgetControllers.remove(categoryId);
+  }
 
   @override
   void dispose() {
@@ -109,6 +124,11 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
     
     // Dispose category controllers
     for (final controller in _categoryControllers.values) {
+      controller.dispose();
+    }
+    
+    // Dispose category budget controllers
+    for (final controller in _categoryBudgetControllers.values) {
       controller.dispose();
     }
     
@@ -133,8 +153,15 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Service Category',
+                    'Select Service Category',
                     style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Choose one service category for your request',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   
@@ -255,8 +282,22 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
                       return ServiceCategorySelector(
                         availableCategories: availableCategories,
                         selectedCategoryIds: _selectedCategoryIds,
+                        allowMultiple: false, // Only allow single category selection
                         onCategoriesChanged: (categoryIds) {
                           _setStateWithScrollPreservation(() {
+                            // Dispose controllers for removed categories
+                            final removedCategories = _selectedCategoryIds.where(
+                              (id) => !categoryIds.contains(id)
+                            ).toList();
+                            for (final categoryId in removedCategories) {
+                              _disposeCategoryBudgetController(categoryId);
+                            }
+                            
+                            // Initialize controllers for new categories
+                            for (final categoryId in categoryIds) {
+                              _initializeCategoryBudgetController(categoryId);
+                            }
+                            
                             _selectedCategoryIds = categoryIds;
                             _customFields.clear(); // Clear custom fields when category changes
                           });
@@ -268,7 +309,7 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
                   if (_selectedCategoryIds.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Text(
-                      'Selected: ${_selectedCategoryIds.join(', ')}',
+                      'Selected: ${_selectedCategoryIds.first}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -337,28 +378,6 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
                     children: [
                       Expanded(
                         child: TextFormField(
-                          controller: _budgetController,
-                          decoration: const InputDecoration(
-                            labelText: 'Budget Range (\$)',
-                            hintText: 'Your budget for this service',
-                            prefixIcon: Icon(Icons.attach_money),
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your budget';
-                            }
-                            final budget = double.tryParse(value);
-                            if (budget == null || budget <= 0) {
-                              return 'Please enter a valid budget';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
                           controller: _priorityController,
                           decoration: const InputDecoration(
                             labelText: 'Priority',
@@ -400,6 +419,45 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
           ),
           
           const SizedBox(height: 16),
+          
+          // Budget Field (single category, so just one budget)
+          if (_selectedCategoryIds.isNotEmpty) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Budget',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _budgetController,
+                      decoration: const InputDecoration(
+                        labelText: 'Budget Range (\$)',
+                        hintText: 'Your budget for this service',
+                        prefixIcon: Icon(Icons.attach_money),
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your budget';
+                        }
+                        final budget = double.tryParse(value);
+                        if (budget == null || budget <= 0) {
+                          return 'Please enter a valid budget';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           
           // Category-Specific Fields
           if (_selectedCategoryIds.isNotEmpty) ...[
@@ -916,7 +974,7 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
 
     if (_selectedCategoryIds.isEmpty) {
       setState(() {
-        _errorMessage = 'Please select at least one service category';
+        _errorMessage = 'Please select a service category';
       });
       return;
     }
@@ -944,6 +1002,15 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
       // Build custom fields based on selected categories
       _buildCustomFields();
 
+      // Build budget (single category, so just one budget)
+      final categoryBudgets = <String, double>{};
+      if (_selectedCategoryIds.isNotEmpty && _budgetController.text.isNotEmpty) {
+        final budget = double.tryParse(_budgetController.text);
+        if (budget != null && budget > 0) {
+          categoryBudgets[_selectedCategoryIds.first] = budget;
+        }
+      }
+
       // Create job request in Firestore
       final now = DateTime.now();
       final requestId = await firestoreService.createJobRequest({
@@ -953,6 +1020,8 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
         'title': _titleController.text,
         'description': _descriptionController.text,
         'estimatedBudget': double.tryParse(_budgetController.text),
+        'categoryBudgets': categoryBudgets.isEmpty ? null : categoryBudgets,
+        'categoryCustomFields': _categoryCustomFields?.isEmpty ?? true ? null : _categoryCustomFields,
         'location': _locationController.text,
         'priority': _getJobPriority(_priorityController.text).name,
         'customFields': _customFields,
@@ -972,6 +1041,8 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
         title: _titleController.text,
         description: _descriptionController.text,
         estimatedBudget: double.tryParse(_budgetController.text),
+        categoryBudgets: categoryBudgets.isEmpty ? null : categoryBudgets,
+        categoryCustomFields: _categoryCustomFields?.isEmpty ?? true ? null : _categoryCustomFields,
         location: _locationController.text,
         priority: _getJobPriority(_priorityController.text),
         customFields: _customFields,
@@ -1011,46 +1082,75 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
   void _buildCustomFields() {
     _customFields.clear();
     
+    // Build per-category custom fields
+    final categoryCustomFields = <String, Map<String, dynamic>>{};
+    
     for (final categoryId in _selectedCategoryIds) {
+      final categoryFields = <String, dynamic>{};
+      
       switch (categoryId) {
         case 'mechanics':
+          categoryFields['vehicleMake'] = _categoryControllers['mechanics']?.text;
+          categoryFields['vehicleModel'] = _categoryControllers['mechanics_model']?.text;
+          categoryFields['vehicleYear'] = _categoryControllers['mechanics_year']?.text;
+          // Also add to legacy _customFields for backward compatibility
           _customFields['vehicleMake'] = _categoryControllers['mechanics']?.text;
           _customFields['vehicleModel'] = _categoryControllers['mechanics_model']?.text;
           _customFields['vehicleYear'] = _categoryControllers['mechanics_year']?.text;
           break;
         case 'hairdressers_barbers':
+          categoryFields['hairType'] = _categoryControllers['hairdressers_barbers']?.text;
           _customFields['hairType'] = _categoryControllers['hairdressers_barbers']?.text;
           break;
         case 'makeup_artists':
+          categoryFields['eventType'] = _categoryControllers['makeup_artists']?.text;
           _customFields['eventType'] = _categoryControllers['makeup_artists']?.text;
           break;
         case 'nail_technicians':
+          categoryFields['nailStyle'] = _categoryControllers['nail_technicians']?.text;
           _customFields['nailStyle'] = _categoryControllers['nail_technicians']?.text;
           break;
         case 'plumbers':
+          categoryFields['problemType'] = _categoryControllers['plumbers']?.text;
           _customFields['problemType'] = _categoryControllers['plumbers']?.text;
           break;
         case 'electricians':
+          categoryFields['issueType'] = _categoryControllers['electricians']?.text;
           _customFields['issueType'] = _categoryControllers['electricians']?.text;
           break;
         case 'appliance_repair':
+          categoryFields['applianceType'] = _categoryControllers['appliance_repair']?.text;
           _customFields['applianceType'] = _categoryControllers['appliance_repair']?.text;
           break;
         case 'hvac_specialists':
+          categoryFields['systemType'] = _categoryControllers['hvac_specialists']?.text;
           _customFields['systemType'] = _categoryControllers['hvac_specialists']?.text;
           break;
         case 'it_support':
+          categoryFields['deviceType'] = _categoryControllers['it_support']?.text;
           _customFields['deviceType'] = _categoryControllers['it_support']?.text;
           break;
         case 'security_systems':
+          categoryFields['securitySystemType'] = _categoryControllers['security_systems']?.text;
           _customFields['securitySystemType'] = _categoryControllers['security_systems']?.text;
           break;
         case 'glass_windows':
+          categoryFields['materialType'] = _categoryControllers['glass_windows']?.text;
           _customFields['materialType'] = _categoryControllers['glass_windows']?.text;
           break;
       }
+      
+      if (categoryFields.isNotEmpty) {
+        categoryCustomFields[categoryId] = categoryFields;
+      }
     }
+    
+    // Store for use in submit
+    _categoryCustomFields = categoryCustomFields;
   }
+  
+  // Store per-category custom fields
+  Map<String, Map<String, dynamic>>? _categoryCustomFields;
 
   JobPriority _getJobPriority(String priorityText) {
     switch (priorityText.toLowerCase()) {
@@ -1080,11 +1180,17 @@ class _ServiceRequestFormState extends State<ServiceRequestForm> {
       controller.clear();
     }
     
+    // Clear category budget controllers
+    for (final controller in _categoryBudgetControllers.values) {
+      controller.clear();
+    }
+    
     setState(() {
       _selectedImages.clear();
       _uploadedImageUrls.clear();
       _selectedCategoryIds.clear();
       _customFields.clear();
+      _categoryCustomFields = null;
     });
   }
 }

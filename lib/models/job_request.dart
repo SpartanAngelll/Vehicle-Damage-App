@@ -22,7 +22,9 @@ class JobRequest {
   final String description;
   final List<String> categoryIds; // Multiple categories supported
   final List<String> imageUrls;
-  final double? estimatedBudget;
+  final double? estimatedBudget; // Deprecated: kept for backward compatibility
+  final Map<String, double>? categoryBudgets; // Budget per category
+  final Map<String, Map<String, dynamic>>? categoryCustomFields; // Custom fields per category
   final String? location;
   final String? contactPhone;
   final JobStatus status;
@@ -31,7 +33,7 @@ class JobRequest {
   final DateTime updatedAt;
   final DateTime? deadline;
   final List<String> tags;
-  final Map<String, dynamic>? customFields; // For category-specific data
+  final Map<String, dynamic>? customFields; // For category-specific data (deprecated, use categoryCustomFields)
 
   JobRequest({
     String? id,
@@ -42,6 +44,8 @@ class JobRequest {
     required this.categoryIds,
     required this.imageUrls,
     this.estimatedBudget,
+    this.categoryBudgets,
+    this.categoryCustomFields,
     this.location,
     this.contactPhone,
     JobStatus? status,
@@ -107,6 +111,8 @@ class JobRequest {
       'categoryIds': categoryIds,
       'imageUrls': imageUrls,
       'estimatedBudget': estimatedBudget,
+      'categoryBudgets': categoryBudgets,
+      'categoryCustomFields': categoryCustomFields,
       'location': location,
       'contactPhone': contactPhone,
       'status': status.name,
@@ -121,6 +127,21 @@ class JobRequest {
 
   // Create from Firestore document
   factory JobRequest.fromMap(Map<String, dynamic> map, String documentId) {
+    // Parse categoryBudgets
+    Map<String, double>? categoryBudgets;
+    if (map['categoryBudgets'] != null) {
+      final budgetsMap = map['categoryBudgets'] as Map<String, dynamic>;
+      categoryBudgets = budgetsMap.map((key, value) => MapEntry(key, (value as num).toDouble()));
+    }
+    
+    // Parse categoryCustomFields
+    Map<String, Map<String, dynamic>>? categoryCustomFields;
+    if (map['categoryCustomFields'] != null) {
+      final fieldsMap = map['categoryCustomFields'] as Map<String, dynamic>;
+      categoryCustomFields = fieldsMap.map((key, value) => 
+        MapEntry(key, Map<String, dynamic>.from(value as Map<dynamic, dynamic>)));
+    }
+    
     return JobRequest(
       id: documentId,
       customerId: map['customerId'] ?? '',
@@ -130,6 +151,8 @@ class JobRequest {
       categoryIds: List<String>.from(map['categoryIds'] ?? []),
       imageUrls: List<String>.from(map['imageUrls'] ?? []),
       estimatedBudget: map['estimatedBudget']?.toDouble(),
+      categoryBudgets: categoryBudgets,
+      categoryCustomFields: categoryCustomFields,
       location: map['location'],
       contactPhone: map['contactPhone'],
       status: _parseJobStatus(map['status']),
@@ -180,6 +203,8 @@ class JobRequest {
     List<String>? categoryIds,
     List<String>? imageUrls,
     double? estimatedBudget,
+    Map<String, double>? categoryBudgets,
+    Map<String, Map<String, dynamic>>? categoryCustomFields,
     String? location,
     String? contactPhone,
     JobStatus? status,
@@ -199,6 +224,8 @@ class JobRequest {
       categoryIds: categoryIds ?? this.categoryIds,
       imageUrls: imageUrls ?? this.imageUrls,
       estimatedBudget: estimatedBudget ?? this.estimatedBudget,
+      categoryBudgets: categoryBudgets ?? this.categoryBudgets,
+      categoryCustomFields: categoryCustomFields ?? this.categoryCustomFields,
       location: location ?? this.location,
       contactPhone: contactPhone ?? this.contactPhone,
       status: status ?? this.status,
@@ -209,6 +236,16 @@ class JobRequest {
       tags: tags ?? this.tags,
       customFields: customFields ?? this.customFields,
     );
+  }
+  
+  // Helper method to get budget for a specific category
+  double? getBudgetForCategory(String categoryId) {
+    return categoryBudgets?[categoryId] ?? estimatedBudget;
+  }
+  
+  // Helper method to get custom fields for a specific category
+  Map<String, dynamic>? getCustomFieldsForCategory(String categoryId) {
+    return categoryCustomFields?[categoryId] ?? customFields;
   }
 
   @override

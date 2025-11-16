@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../services/firebase_firestore_service.dart';
 import '../widgets/glow_card.dart';
+import '../widgets/web_layout.dart';
 import '../utils/responsive_utils.dart';
 
 class MyServiceRequestsScreen extends StatefulWidget {
@@ -110,6 +112,37 @@ class _MyServiceRequestsScreenState extends State<MyServiceRequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWeb = kIsWeb;
+
+    if (isWeb) {
+      final screenWidth = MediaQuery.of(context).size.width;
+      final maxContentWidth = (screenWidth > 1400 ? 1200.0 : 1100.0);
+
+      return WebLayout(
+        currentRoute: '/myServiceRequests',
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(maxWidth: maxContentWidth),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'My Service Requests',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Expanded(
+                  child: _buildBody(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(

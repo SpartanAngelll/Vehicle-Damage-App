@@ -23,9 +23,12 @@ service cloud.firestore {
       );
     }
     
-    // Users can read/write their own profile and Allow authenticated users to read all profiles
+    // Users can read/write their own profile
+    // Allow public read for service professionals (for search/browsing)
+    // Allow authenticated users to read all profiles
     match /users/{userId} {
-      allow read, write: if isAuthenticated();
+      allow read: if true; // Allow public read for search functionality
+      allow write: if isAuthenticated() && request.auth.uid == userId;
     }
     
     // Damage report owners can read/write their reports, professionals can read pending reports
@@ -53,9 +56,10 @@ service cloud.firestore {
       allow delete: if false; // Soft delete only
     }
     
-    // Service categories - allow authenticated users to read and write (for seeding)
+    // Service categories - allow public read (for browsing/search), authenticated write (for seeding)
     match /service_categories/{categoryId} {
-      allow read, create, update: if isAuthenticated();
+      allow read: if true; // Allow public read for homepage/search
+      allow create, update: if isAuthenticated();
     }
     
     // Job requests - allow authenticated users to read and create
@@ -68,9 +72,17 @@ service cloud.firestore {
       );
     }
     
-    // Service professionals - allow authenticated users to read and write their own profile
+    // Service professionals - allow public read (for search/browsing), authenticated write
     match /service_professionals/{professionalId} {
-      allow read, write: if isAuthenticated();
+      allow read: if true; // Allow public read for search functionality
+      allow write: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        resource == null // Allow create if document doesn't exist
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid
+      );
     }
     
     // Chat rooms - allow participants to read/write
@@ -149,9 +161,92 @@ service cloud.firestore {
       );
     }
     
-    // Reviews - allow authenticated users to read all reviews, but only create/update their own
+    // Professional availability - professionals can manage their own, customers can read
+    match /professional_availability/{availabilityId} {
+      allow read: if isAuthenticated(); // Allow authenticated users to read availability for booking
+      allow create: if isAuthenticated() && (
+        // Allow if professionalId matches userId OR if user owns the service_professional document
+        request.resource.data.professionalId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/service_professionals/$(request.resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(request.resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        // Allow if professionalId matches userId OR if user owns the service_professional document
+        resource.data.professionalId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      allow delete: if isAuthenticated() && (
+        // Allow if professionalId matches userId OR if user owns the service_professional document
+        resource.data.professionalId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      // Allow list queries for authenticated users
+      allow list: if isAuthenticated();
+    }
+    
+    // Time slots - professionals can manage their own, customers can read available slots
+    match /time_slots/{slotId} {
+      allow read: if isAuthenticated(); // Allow authenticated users to read time slots for booking
+      allow create: if isAuthenticated() && (
+        // Allow if professionalId matches userId OR if user owns the service_professional document
+        request.resource.data.professionalId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/service_professionals/$(request.resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(request.resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        // Allow if professionalId matches userId OR if user owns the service_professional document
+        resource.data.professionalId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid) ||
+        // Allow authenticated users to update slots when booking (marking as unavailable)
+        // The booking itself will be validated by the bookings collection rules
+        (resource.data.isAvailable == true && 
+         request.resource.data.isAvailable == false &&
+         request.resource.data.bookingId != null)
+      );
+      allow delete: if isAuthenticated() && (
+        // Allow if professionalId matches userId OR if user owns the service_professional document
+        resource.data.professionalId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      // Allow list queries for authenticated users (needed for composite queries)
+      allow list: if isAuthenticated();
+    }
+    
+    // Booking conflicts - professionals can read/write conflicts for their bookings
+    match /booking_conflicts/{conflictId} {
+      allow read: if isAuthenticated() && (
+        resource.data.professionalId == request.auth.uid ||
+        // Allow if professionalId matches userId in service_professionals document
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.professionalId == request.auth.uid ||
+        // Allow if professionalId matches userId in service_professionals document
+        (exists(/databases/$(database)/documents/service_professionals/$(request.resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(request.resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.professionalId == request.auth.uid ||
+        // Allow if professionalId matches userId in service_professionals document
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.professionalId == request.auth.uid ||
+        // Allow if professionalId matches userId in service_professionals document
+        (exists(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)) &&
+         get(/databases/$(database)/documents/service_professionals/$(resource.data.professionalId)).data.userId == request.auth.uid)
+      );
+    }
+    
+    // Reviews - allow public read (for browsing profiles), but only authenticated users can create/update their own
     match /reviews/{reviewId} {
-      allow read: if isAuthenticated();
+      allow read: if true; // Allow public read for unauthenticated users
       allow create: if isAuthenticated() && (
         request.resource.data.customerId == request.auth.uid ||
         request.resource.data.professionalId == request.auth.uid
@@ -163,9 +258,9 @@ service cloud.firestore {
       allow delete: if false; // Prevent deletion of reviews
     }
     
-    // Professional reviews - allow authenticated users to read all reviews, but only create/update their own
+    // Professional reviews - allow public read (for browsing profiles), but only authenticated users can create/update their own
     match /professional_reviews/{reviewId} {
-      allow read: if isAuthenticated();
+      allow read: if true; // Allow public read for unauthenticated users
       allow create: if isAuthenticated() && (
         request.resource.data.customerId == request.auth.uid ||
         request.resource.data.professionalId == request.auth.uid
@@ -203,6 +298,45 @@ service cloud.firestore {
       allow create: if isAuthenticated();
       allow update: if isAuthenticated();
       allow delete: if isAuthenticated();
+    }
+    
+    // Notifications - users can only read/write their own notifications
+    match /notifications/{notificationId} {
+      allow read, write: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+    
+    // Notification templates - allow authenticated users to read
+    match /notification_templates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only admins can modify templates
+    }
+    
+    // Notification channels - allow authenticated users to read
+    match /notification_channels/{channelId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only admins can modify channels
+    }
+    
+    // Notification preferences - users can only read/write their own preferences
+    match /notification_preferences/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Job summaries - allow participants to read/write
+    match /job_summaries/{summaryId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.customerId == request.auth.uid ||
+        request.resource.data.professionalId == request.auth.uid
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid
+      );
     }
   }
 }

@@ -1,13 +1,16 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/service_professional.dart';
 import '../models/user_state.dart';
+import '../models/image_quality.dart';
 import '../services/firebase_firestore_service.dart';
 import '../services/storage_service.dart';
 import '../services/image_service.dart';
+import '../services/platform_image_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/map_picker_widget.dart';
 import '../widgets/embedded_map_widget.dart';
@@ -15,15 +18,18 @@ import '../widgets/cached_image_widget.dart';
 import '../widgets/horizontal_ratings_widget.dart';
 import '../screens/reviews_screen.dart';
 import '../screens/cashout_screen.dart';
+import '../screens/professional_booking_management_screen.dart';
 import '../services/payout_service.dart';
 import '../models/payout_models.dart';
 
 class ServiceProfessionalProfileScreen extends StatefulWidget {
   final String? professionalId; // If null, shows current user's profile
+  final bool isCustomerView; // If true, shows only customer-relevant sections (from estimate click)
   
   const ServiceProfessionalProfileScreen({
     super.key,
     this.professionalId,
+    this.isCustomerView = false,
   });
 
   @override
@@ -44,7 +50,6 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
   // Form controllers for editing
   final TextEditingController _bioController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
-  final TextEditingController _businessNameController = TextEditingController();
   final TextEditingController _businessAddressController = TextEditingController();
   final TextEditingController _businessPhoneController = TextEditingController();
   final TextEditingController _websiteController = TextEditingController();
@@ -90,7 +95,6 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
   void dispose() {
     _bioController.dispose();
     _locationController.dispose();
-    _businessNameController.dispose();
     _businessAddressController.dispose();
     _businessPhoneController.dispose();
     _websiteController.dispose();
@@ -148,7 +152,6 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
         _locationController.text = _professional!.serviceAreas.isNotEmpty 
             ? _professional!.serviceAreas.first 
             : '';
-        _businessNameController.text = _professional!.businessName ?? '';
         _businessAddressController.text = _professional!.businessAddress ?? '';
         _businessPhoneController.text = _professional!.businessPhone ?? '';
         _websiteController.text = _professional!.website ?? '';
@@ -218,7 +221,6 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
         serviceAreas: _locationController.text.trim().isEmpty 
             ? [] 
             : [_locationController.text.trim()],
-        businessName: _businessNameController.text.trim().isEmpty ? null : _businessNameController.text.trim(),
         businessAddress: _businessAddressController.text.trim().isEmpty ? null : _businessAddressController.text.trim(),
         businessPhone: _businessPhoneController.text.trim().isEmpty ? null : _businessPhoneController.text.trim(),
         website: _websiteController.text.trim().isEmpty ? null : _websiteController.text.trim(),
@@ -272,42 +274,82 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
       );
       
       if (source != null) {
-        final imageFile = await ImageService.pickImage(
-          source: source,
-          maxWidth: 1024,
-          maxHeight: 1024,
-          imageQuality: 90,
-        );
-        
-        if (imageFile != null) {
-          // Show cropping dialog
-          final croppedImage = await _showCroppingDialog(imageFile);
+        if (kIsWeb) {
+          // On web, use PlatformImageService which returns Uint8List
+          final imageBytes = await PlatformImageService.pickImage(
+            source: source,
+            quality: ImageQuality.high,
+            maxWidth: 1024,
+            maxHeight: 1024,
+          );
           
-          if (croppedImage != null) {
-            final photoUrl = await StorageService.uploadUserProfileImage(
+          if (imageBytes != null) {
+            // Upload directly from bytes
+            final photoUrl = await StorageService.uploadUserProfileImageFromBytes(
               userId: _professional!.userId,
-              imageFile: croppedImage,
+              imageBytes: imageBytes,
             );
             
             if (photoUrl != null) {
-                    final updatedProfessional = _professional!.copyWith(
-        profilePhotoUrl: photoUrl,
-        // Preserve existing location data
-        latitude: _professional!.latitude,
-        longitude: _professional!.longitude,
-        address: _professional!.address,
-        updatedAt: DateTime.now(),
-      );
+              final updatedProfessional = _professional!.copyWith(
+                profilePhotoUrl: photoUrl,
+                // Preserve existing location data
+                latitude: _professional!.latitude,
+                longitude: _professional!.longitude,
+                address: _professional!.address,
+                updatedAt: DateTime.now(),
+              );
               
               await _firestoreService.updateServiceProfessional(updatedProfessional);
               
               setState(() {
                 _professional = updatedProfessional;
               });
-              
+
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Profile photo updated!')),
               );
+            }
+          }
+        } else {
+          // On mobile, use File-based approach
+          final imageFile = await ImageService.pickImage(
+            source: source,
+            maxWidth: 1024,
+            maxHeight: 1024,
+            imageQuality: 90,
+          );
+          
+          if (imageFile != null) {
+            // Show cropping dialog
+            final croppedImage = await _showCroppingDialog(imageFile);
+            
+            if (croppedImage != null) {
+              final photoUrl = await StorageService.uploadUserProfileImage(
+                userId: _professional!.userId,
+                imageFile: croppedImage,
+              );
+              
+              if (photoUrl != null) {
+                final updatedProfessional = _professional!.copyWith(
+                  profilePhotoUrl: photoUrl,
+                  // Preserve existing location data
+                  latitude: _professional!.latitude,
+                  longitude: _professional!.longitude,
+                  address: _professional!.address,
+                  updatedAt: DateTime.now(),
+                );
+              
+                await _firestoreService.updateServiceProfessional(updatedProfessional);
+              
+                setState(() {
+                  _professional = updatedProfessional;
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Profile photo updated!')),
+                );
+              }
             }
           }
         }
@@ -456,27 +498,32 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
       );
 
       if (source != null) {
-        final imageFile = await ImageService.pickImage(source: source);
-        if (imageFile != null) {
-          // Show cropping dialog for cover photo
-          final croppedFile = await _showCoverPhotoCroppingDialog(imageFile);
-          if (croppedFile != null) {
-            // Upload to Firebase Storage
-            final photoUrl = await StorageService.uploadCoverPhoto(
+        if (kIsWeb) {
+          // On web, use PlatformImageService which returns Uint8List
+          final imageBytes = await PlatformImageService.pickImage(
+            source: source,
+            quality: ImageQuality.medium,
+            maxWidth: 1200,
+            maxHeight: 400,
+          );
+          
+          if (imageBytes != null) {
+            // Upload directly from bytes
+            final photoUrl = await StorageService.uploadCoverPhotoFromBytes(
               professionalId: _professional!.id,
-              imageFile: croppedFile,
+              imageBytes: imageBytes,
             );
 
             if (photoUrl != null) {
               // Update cover photo URL in Firestore
-                    final updatedProfessional = _professional!.copyWith(
-        coverPhotoUrl: photoUrl,
-        // Preserve existing location data
-        latitude: _professional!.latitude,
-        longitude: _professional!.longitude,
-        address: _professional!.address,
-        updatedAt: DateTime.now(),
-      );
+              final updatedProfessional = _professional!.copyWith(
+                coverPhotoUrl: photoUrl,
+                // Preserve existing location data
+                latitude: _professional!.latitude,
+                longitude: _professional!.longitude,
+                address: _professional!.address,
+                updatedAt: DateTime.now(),
+              );
               
               await _firestoreService.updateServiceProfessional(updatedProfessional);
               
@@ -488,6 +535,43 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Cover photo updated!')),
               );
+            }
+          }
+        } else {
+          // On mobile, use File-based approach
+          final imageFile = await ImageService.pickImage(source: source);
+          if (imageFile != null) {
+            // Show cropping dialog for cover photo
+            final croppedFile = await _showCoverPhotoCroppingDialog(imageFile);
+            if (croppedFile != null) {
+              // Upload to Firebase Storage
+              final photoUrl = await StorageService.uploadCoverPhoto(
+                professionalId: _professional!.id,
+                imageFile: croppedFile,
+              );
+
+              if (photoUrl != null) {
+                // Update cover photo URL in Firestore
+                final updatedProfessional = _professional!.copyWith(
+                  coverPhotoUrl: photoUrl,
+                  // Preserve existing location data
+                  latitude: _professional!.latitude,
+                  longitude: _professional!.longitude,
+                  address: _professional!.address,
+                  updatedAt: DateTime.now(),
+                );
+              
+                await _firestoreService.updateServiceProfessional(updatedProfessional);
+              
+                setState(() {
+                  _professional = updatedProfessional;
+                  _coverPhotoUrl = photoUrl;
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Cover photo updated!')),
+                );
+              }
             }
           }
         }
@@ -525,15 +609,20 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
       );
 
       if (source != null) {
-        final imageFile = await ImageService.pickImage(source: source);
-        if (imageFile != null) {
-          // Show cropping dialog for work showcase image
-          final croppedFile = await _showWorkShowcaseCroppingDialog(imageFile);
-          if (croppedFile != null) {
-            // Upload to Firebase Storage
-            final photoUrl = await StorageService.uploadWorkShowcaseImage(
+        if (kIsWeb) {
+          // On web, use PlatformImageService which returns Uint8List
+          final imageBytes = await PlatformImageService.pickImage(
+            source: source,
+            quality: ImageQuality.medium,
+            maxWidth: 800,
+            maxHeight: 600,
+          );
+          
+          if (imageBytes != null) {
+            // Upload directly from bytes
+            final photoUrl = await StorageService.uploadWorkShowcaseImageFromBytes(
               professionalId: _professional!.id,
-              imageFile: croppedFile,
+              imageBytes: imageBytes,
             );
 
             if (photoUrl != null) {
@@ -554,6 +643,40 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Work showcase image added!')),
               );
+            }
+          }
+        } else {
+          // On mobile, use File-based approach
+          final imageFile = await ImageService.pickImage(source: source);
+          if (imageFile != null) {
+            // Show cropping dialog for work showcase image
+            final croppedFile = await _showWorkShowcaseCroppingDialog(imageFile);
+            if (croppedFile != null) {
+              // Upload to Firebase Storage
+              final photoUrl = await StorageService.uploadWorkShowcaseImage(
+                professionalId: _professional!.id,
+                imageFile: croppedFile,
+              );
+
+              if (photoUrl != null) {
+                // Update work showcase images in Firestore
+                final updatedImages = List<String>.from(_workShowcaseImages)..add(photoUrl);
+                final updatedProfessional = _professional!.copyWith(
+                  workShowcaseImages: updatedImages,
+                  updatedAt: DateTime.now(),
+                );
+              
+                await _firestoreService.updateServiceProfessional(updatedProfessional);
+              
+                setState(() {
+                  _professional = updatedProfessional;
+                  _workShowcaseImages = updatedImages;
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Work showcase image added!')),
+                );
+              }
             }
           }
         }
@@ -1009,6 +1132,13 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
     }
     
     return Scaffold(
+      floatingActionButton: _isCurrentUser && !widget.isCustomerView ? FloatingActionButton.extended(
+        onPressed: _navigateToBookingManagement,
+        icon: const Icon(Icons.calendar_today),
+        label: const Text('Manage Bookings'),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
+      ) : null,
       body: RefreshIndicator(
         onRefresh: _refreshProfileStats,
         child: CustomScrollView(
@@ -1134,7 +1264,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                       right: 0,
                       child: Center(
                         child: GestureDetector(
-                          onTap: _isCurrentUser ? _uploadProfilePhoto : null,
+                          onTap: _isCurrentUser && !widget.isCustomerView ? _uploadProfilePhoto : null,
                           child: Container(
                             width: 80,
                             height: 80,
@@ -1159,7 +1289,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                                   size: 80,
                                 ),
                                 // Upload overlay indicator
-                                if (_isCurrentUser)
+                                if (_isCurrentUser && !widget.isCustomerView)
                                   Positioned(
                                     bottom: 2,
                                     right: 2,
@@ -1188,7 +1318,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                       ),
                     ),
                     // Upload instruction text
-                    if (_isCurrentUser)
+                    if (_isCurrentUser && !widget.isCustomerView)
                       Positioned(
                         bottom: 10,
                         left: 0,
@@ -1209,9 +1339,12 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                 ),
               ),
             ),
-            leading: null,
+            leading: widget.isCustomerView ? IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+            ) : null,
             actions: [
-              if (_isCurrentUser) ...[
+              if (_isCurrentUser && !widget.isCustomerView) ...[
                 IconButton(
                   icon: _isRefreshingStats 
                       ? const SizedBox(
@@ -1247,139 +1380,130 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
           
           // Content
           SliverToBoxAdapter(
-            child: Column(
-              children: [
-                // Stats Row
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem(
-                        _professional!.jobsCompleted.toString(),
-                        'Jobs\nCompleted',
-                      ),
-                      _buildStatItem(
-                        _professional!.averageRating.toStringAsFixed(1),
-                        'Average\nRating',
-                      ),
-                      _buildStatItem(
-                        _getTimeAgo(_professional!.createdAt),
-                        'Years\nActive',
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Refresh indicator
-                if (_isRefreshingStats)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  // Stats Row
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-                          ),
+                        _buildStatItem(
+                          _professional!.jobsCompleted.toString(),
+                          'Jobs\nCompleted',
                         ),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Refreshing statistics...',
-                          style: TextStyle(
-                            color: AppTheme.primaryColor,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        _buildStatItem(
+                          _professional!.averageRating.toStringAsFixed(1),
+                          'Average\nRating',
+                        ),
+                        _buildStatItem(
+                          _getTimeAgo(_professional!.createdAt),
+                          'Years\nActive',
                         ),
                       ],
                     ),
                   ),
-                
-                // Profile Sections
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    children: [
-                      _buildProfileSection(
-                        'Joined',
-                        _getTimeAgo(_professional!.createdAt),
-                        Icons.calendar_today,
+                  
+                  // Refresh indicator
+                  if (_isRefreshingStats)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Refreshing statistics...',
+                            style: TextStyle(
+                              color: AppTheme.primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                      _buildProfileSection(
-                        'Bio',
-                        _professional!.bio ?? 'No bio added yet',
-                        Icons.info,
-                        isEditable: _isEditing && _isCurrentUser,
-                        controller: _bioController,
-                      ),
-                      _buildProfileSection(
-                        'Location',
-                        _professional!.serviceAreas.isNotEmpty
-                            ? _professional!.serviceAreas.first
-                            : 'Location not set',
-                        Icons.location_on,
-                        isEditable: _isEditing && _isCurrentUser,
-                        controller: _locationController,
-                      ),
-                      _buildProfileSection(
-                        'Business Name',
-                        _professional!.businessName ?? 'No business name added',
-                        Icons.business,
-                        isEditable: _isEditing && _isCurrentUser,
-                        controller: _businessNameController,
-                      ),
-                      _buildProfileSection(
-                        'Business Address',
-                        _professional!.businessAddress ?? 'No business address added',
-                        Icons.location_city,
-                        isEditable: _isEditing && _isCurrentUser,
-                        controller: _businessAddressController,
-                      ),
-                      _buildProfileSection(
-                        'Business Phone',
-                        _professional!.businessPhone ?? 'No business phone added',
-                        Icons.phone,
-                        isEditable: _isEditing && _isCurrentUser,
-                        controller: _businessPhoneController,
-                      ),
-                      _buildProfileSection(
-                        'Website',
-                        _professional!.website ?? 'No website added',
-                        Icons.web,
-                        isEditable: _isEditing && _isCurrentUser,
-                        controller: _websiteController,
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Certifications & Specialties Section
-                if (_professional!.certifications.isNotEmpty || _professional!.specializations.isNotEmpty || (_isCurrentUser && _isEditing)) ...[
+                    ),
+                  
+                  // Profile Sections - Only show in full view, not customer view
+                  if (!widget.isCustomerView) ...[
+                    _buildProfileSection(
+                      'Joined',
+                      _getTimeAgo(_professional!.createdAt),
+                      Icons.calendar_today,
+                    ),
+                    _buildProfileSection(
+                      'Bio',
+                      _professional!.bio ?? 'No bio added yet',
+                      Icons.info,
+                      isEditable: _isEditing && _isCurrentUser,
+                      controller: _bioController,
+                    ),
+                    _buildProfileSection(
+                      'Location',
+                      _professional!.serviceAreas.isNotEmpty
+                          ? _professional!.serviceAreas.first
+                          : 'Location not set',
+                      Icons.location_on,
+                      isEditable: _isEditing && _isCurrentUser,
+                      controller: _locationController,
+                    ),
+                    _buildProfileSection(
+                      'Business Address',
+                      _professional!.businessAddress ?? 'No business address added',
+                      Icons.location_city,
+                      isEditable: _isEditing && _isCurrentUser,
+                      controller: _businessAddressController,
+                    ),
+                    _buildProfileSection(
+                      'Business Phone',
+                      _professional!.businessPhone ?? 'No business phone added',
+                      Icons.phone,
+                      isEditable: _isEditing && _isCurrentUser,
+                      controller: _businessPhoneController,
+                    ),
+                    _buildProfileSection(
+                      'Website',
+                      _professional!.website ?? 'No website added',
+                      Icons.web,
+                      isEditable: _isEditing && _isCurrentUser,
+                      controller: _websiteController,
+                    ),
+                  ],
+                  
+                  // Certifications & Specialties Section - Show in both views
+                  if (_professional!.certifications.isNotEmpty || _professional!.specializations.isNotEmpty || (_isCurrentUser && _isEditing && !widget.isCustomerView)) ...[
+                    const SizedBox(height: 20),
+                    _buildCertificationsAndSpecialtiesSection(),
+                  ],
+                  
+                  // Work Showcase Section - Show in both views
                   const SizedBox(height: 20),
-                  _buildCertificationsAndSpecialtiesSection(),
+                  _buildWorkShowcaseSection(),
+                  
+                  // Location Section - Show in both views
+                  const SizedBox(height: 20),
+                  _buildLocationSection(),
+                  
+                  // Ratings Section - Show in both views
+                  const SizedBox(height: 20),
+                  HorizontalRatingsWidget(
+                    professionalId: _professional!.id,
+                    professionalName: _professional!.fullName,
+                  ),
+                  
+                  const SizedBox(height: 40),
                 ],
-                
-                // Work Showcase Section
-                const SizedBox(height: 20),
-                _buildWorkShowcaseSection(),
-                
-                // Location Section
-                const SizedBox(height: 20),
-                _buildLocationSection(),
-                
-                // Ratings Section
-                const SizedBox(height: 20),
-                HorizontalRatingsWidget(
-                  professionalId: _professional!.id,
-                  professionalName: _professional!.fullName,
-                ),
-                
-                const SizedBox(height: 40),
-              ],
+              ),
             ),
           ),
         ],
@@ -1565,9 +1689,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
 
   // Build certifications and specialties section
   Widget _buildCertificationsAndSpecialtiesSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Certifications
@@ -1581,7 +1703,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                   color: AppTheme.primaryColor,
                 ),
               ),
-              if (_isCurrentUser && _isEditing)
+              if (_isCurrentUser && _isEditing && !widget.isCustomerView)
                 TextButton.icon(
                   onPressed: () => _showAddDialog('Certification', 'Enter a new certification', _addCertification),
                   icon: const Icon(Icons.add, size: 16),
@@ -1672,7 +1794,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                   color: AppTheme.primaryColor,
                 ),
               ),
-              if (_isCurrentUser && _isEditing)
+              if (_isCurrentUser && _isEditing && !widget.isCustomerView)
                 TextButton.icon(
                   onPressed: () => _showAddDialog('Specialty', 'Enter a new specialty', _addSpecialty),
                   icon: const Icon(Icons.add, size: 16),
@@ -1751,15 +1873,12 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
             ),
           ],
         ],
-      ),
     );
   }
 
   // Build work showcase section
   Widget _buildWorkShowcaseSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -1772,7 +1891,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                   color: AppTheme.primaryColor,
                 ),
               ),
-              if (_isCurrentUser)
+              if (_isCurrentUser && !widget.isCustomerView)
                 TextButton.icon(
                   onPressed: _uploadWorkShowcaseImage,
                   icon: const Icon(Icons.add, size: 18),
@@ -1820,26 +1939,99 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
               ),
             )
           else
-            SizedBox(
-              height: 120,
-              child: PageView.builder(
-                controller: _workShowcaseController,
-                itemCount: _workShowcaseImages.length,
-                itemBuilder: (context, index) {
-                  return Container(
-                    margin: const EdgeInsets.only(right: 12),
-                    child: GestureDetector(
-                      onTap: () => _showWorkShowcaseImage(_workShowcaseImages[index], index),
-                      child: CachedWorkShowcaseImage(
-                        imageUrl: _workShowcaseImages[index],
-                        width: double.infinity,
-                        height: 120,
-                        borderRadius: BorderRadius.circular(12),
+            Stack(
+              children: [
+                SizedBox(
+                  height: 120,
+                  child: PageView.builder(
+                    controller: _workShowcaseController,
+                    itemCount: _workShowcaseImages.length,
+                    itemBuilder: (context, index) {
+                      return Container(
+                        margin: const EdgeInsets.only(right: 12),
+                        child: GestureDetector(
+                          onTap: () => _showWorkShowcaseImage(_workShowcaseImages[index], index),
+                          child: CachedWorkShowcaseImage(
+                            imageUrl: _workShowcaseImages[index],
+                            width: double.infinity,
+                            height: 120,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                // Navigation arrows
+                if (_workShowcaseImages.length > 1) ...[
+                  // Previous arrow
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          onTap: () {
+                            if (_workShowcaseController.hasClients) {
+                              _workShowcaseController.previousPage(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            padding: const EdgeInsets.all(8),
+                            child: const Icon(
+                              Icons.chevron_left,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                  // Next arrow
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          onTap: () {
+                            if (_workShowcaseController.hasClients) {
+                              _workShowcaseController.nextPage(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            padding: const EdgeInsets.all(8),
+                            child: const Icon(
+                              Icons.chevron_right,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           
           // Page indicators
@@ -1863,15 +2055,12 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
             ),
           ],
         ],
-      ),
     );
   }
 
   // Build location section
   Widget _buildLocationSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -1884,7 +2073,7 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                   color: AppTheme.primaryColor,
                 ),
               ),
-              if (_isCurrentUser)
+              if (_isCurrentUser && !widget.isCustomerView)
                 TextButton.icon(
                   onPressed: _openMapPicker,
                   icon: const Icon(Icons.edit_location, size: 18),
@@ -1909,13 +2098,26 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                 latitude: _professional?.latitude,
                 longitude: _professional?.longitude,
                 address: _professional?.address,
-                isReadOnly: !_isCurrentUser,
+                isReadOnly: !_isCurrentUser || widget.isCustomerView,
                 height: 200,
-                onTap: _isCurrentUser ? _openMapPicker : null,
+                onTap: _isCurrentUser && !widget.isCustomerView ? _openMapPicker : null,
               );
             },
           ),
         ],
+    );
+  }
+
+  void _navigateToBookingManagement() {
+    if (_professional == null) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProfessionalBookingManagementScreen(
+          professionalId: _professional!.id,
+          professionalName: _professional!.fullName,
+        ),
       ),
     );
   }

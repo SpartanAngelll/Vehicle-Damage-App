@@ -1,14 +1,17 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'storage_service.dart';
+import 'platform_image_service.dart';
 import 'package:image/image.dart' as img;
 import '../models/image_quality.dart';
 
 class ImageService {
   static final ImagePicker _picker = ImagePicker();
 
-  // Generic pick image method
+  // Generic pick image method - platform aware
   static Future<File?> pickImage({
     required ImageSource source,
     ImageQuality quality = ImageQuality.medium,
@@ -17,22 +20,41 @@ class ImageService {
     int? imageQuality,
   }) async {
     try {
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        imageQuality: imageQuality ?? _getImageQuality(quality),
-        maxWidth: maxWidth ?? _getMaxWidth(quality)?.toDouble(),
-        maxHeight: maxHeight ?? _getMaxHeight(quality)?.toDouble(),
-      );
-      
-      if (image != null) {
-        final file = File(image.path);
-        if (_validateImageFile(file)) {
-          return file;
-        } else {
-          throw Exception('Invalid image file');
+      if (kIsWeb) {
+        // On web, use PlatformImageService which returns Uint8List
+        final bytes = await PlatformImageService.pickImage(
+          source: source,
+          quality: quality,
+          maxWidth: maxWidth,
+          maxHeight: maxHeight,
+          imageQuality: imageQuality,
+        );
+        
+        if (bytes != null) {
+          // On web, we can't return a File, but we need to handle this differently
+          // The calling code should use PlatformImageService directly on web
+          throw Exception('On web, use PlatformImageService.pickImage() which returns Uint8List');
         }
+        return null;
+      } else {
+        // On mobile, use File-based approach
+        final XFile? image = await _picker.pickImage(
+          source: source,
+          imageQuality: imageQuality ?? _getImageQuality(quality),
+          maxWidth: maxWidth ?? _getMaxWidth(quality)?.toDouble(),
+          maxHeight: maxHeight ?? _getMaxHeight(quality)?.toDouble(),
+        );
+        
+        if (image != null) {
+          final file = File(image.path);
+          if (_validateImageFile(file)) {
+            return file;
+          } else {
+            throw Exception('Invalid image file');
+          }
+        }
+        return null;
       }
-      return null;
     } catch (e) {
       throw Exception('Failed to pick image: $e');
     }
@@ -90,12 +112,19 @@ class ImageService {
     }
   }
 
-  // Pick multiple images from gallery
+  // Pick multiple images from gallery - platform aware
   static Future<List<File>> pickMultipleImagesFromGallery({
     ImageQuality quality = ImageQuality.medium,
     int maxImages = 5,
   }) async {
     try {
+      if (kIsWeb) {
+        // On web, we need to handle this differently
+        // For now, we'll pick one image at a time on web
+        // The calling code should be updated to use PlatformImageService
+        throw Exception('On web, multiple image picking is not supported via ImageService. Use PlatformImageService or pick images one at a time.');
+      }
+      
       final List<XFile> images = await _picker.pickMultiImage(
         imageQuality: _getImageQuality(quality),
         maxWidth: _getMaxWidth(quality)?.toDouble(),
@@ -117,12 +146,17 @@ class ImageService {
     }
   }
 
-  // Pick multiple images from camera (multiple shots)
+  // Pick multiple images from camera (multiple shots) - platform aware
   static Future<List<File>> pickMultipleImagesFromCamera({
     ImageQuality quality = ImageQuality.medium,
     int maxImages = 5,
   }) async {
     try {
+      if (kIsWeb) {
+        // On web, camera access is limited - typically one image at a time
+        throw Exception('On web, multiple camera images are not supported. Use PlatformImageService to pick one image at a time.');
+      }
+      
       final List<File> images = [];
       
       for (int i = 0; i < maxImages; i++) {

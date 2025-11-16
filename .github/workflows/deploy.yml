@@ -1,0 +1,51 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'pubspec.yaml'
+      - 'firebase.json'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.7.2'
+          channel: 'stable'
+          cache: true
+      
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      
+      - name: Build web app
+        run: flutter build web --release --no-tree-shake-icons
+      
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
+          channelId: live
+          projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
+      
+      - name: Deploy Firebase Functions
+        if: contains(github.event.head_commit.message, '[deploy-functions]')
+        run: |
+          cd backend/functions
+          npm install
+          cd ../..
+          firebase deploy --only functions --token ${{ secrets.FIREBASE_TOKEN }}
+
