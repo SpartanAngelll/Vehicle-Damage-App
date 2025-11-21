@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/models.dart';
 import '../models/user_state.dart';
 import '../services/services.dart';
 import '../services/service_category_service.dart';
 import '../services/firebase_firestore_service.dart';
 import '../utils/responsive_utils.dart';
+import '../utils/category_image_helper.dart';
 import '../widgets/responsive_layout.dart';
 import 'search_professionals_screen.dart';
 import 'login_screen.dart';
@@ -28,6 +30,7 @@ class _HomepageScreenState extends State<HomepageScreen> {
   List<ServiceCategory> _categories = [];
   bool _isLoadingCategories = true;
   final ServiceCategoryService _categoryService = ServiceCategoryService();
+
 
   // Popular projects data (similar to Angi.com)
   final List<Map<String, dynamic>> _popularProjects = [
@@ -572,10 +575,10 @@ class _HomepageScreenState extends State<HomepageScreen> {
                 Wrap(
                   spacing: forceMobile 
                     ? (isPortrait ? 12 : 16)
-                    : (isWeb ? 24 : 16),
+                    : (isWeb ? 20 : 16),
                   runSpacing: forceMobile 
-                    ? (isPortrait ? 12 : 10)
-                    : (isWeb ? 24 : 16),
+                    ? (isPortrait ? 12 : 16)
+                    : (isWeb ? 20 : 16),
                   alignment: WrapAlignment.center,
                   children: _categories.map((category) {
                     return _buildCategoryCard(category, isWeb, forceMobile, isPortrait);
@@ -592,10 +595,15 @@ class _HomepageScreenState extends State<HomepageScreen> {
   Widget _buildCategoryCard(ServiceCategory category, bool isWeb, bool isMobile, bool isPortrait) {
     final screenWidth = MediaQuery.of(context).size.width;
     final forceMobile = screenWidth < 768;
-    // In landscape, we can make cards slightly larger
+    // Card dimensions similar to Fresha - wider cards with images
     final cardWidth = forceMobile 
-      ? (isPortrait ? 90.0 : 100.0)
-      : (isWeb ? 140.0 : 100.0);
+      ? (isPortrait ? (screenWidth - 44) / 2 : (screenWidth - 52) / 2)
+      : (isWeb ? 180.0 : 170.0);
+    final cardHeight = forceMobile 
+      ? (isPortrait ? 100.0 : 95.0)
+      : (isWeb ? 110.0 : 105.0);
+    
+    final imageUrl = category.imageUrl ?? CategoryImageHelper.getCategoryImageUrl(category.name);
     
     return InkWell(
       onTap: () {
@@ -610,51 +618,125 @@ class _HomepageScreenState extends State<HomepageScreen> {
       },
       child: Container(
         width: cardWidth,
-        padding: EdgeInsets.all(
-          forceMobile 
-            ? (isPortrait ? 12 : 14)
-            : (isWeb ? 20 : 16)
-        ),
+        height: cardHeight,
         decoration: BoxDecoration(
-          color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[200]!),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 4,
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 8,
               offset: Offset(0, 2),
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              category.icon,
-              size: forceMobile 
-                ? (isPortrait ? 32 : 36)
-                : (isWeb ? 48 : 36),
-              color: category.color,
-            ),
-            SizedBox(height: forceMobile 
-              ? (isPortrait ? 8 : 6)
-              : 12),
-            Text(
-              category.name,
-              style: TextStyle(
-                fontSize: forceMobile 
-                  ? (isPortrait ? 11 : 12)
-                  : (isWeb ? 14 : 12),
-                fontWeight: FontWeight.w500,
-                color: Colors.black87,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            children: [
+              // Background image
+              Positioned.fill(
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey[200],
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(category.color),
+                      ),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: Colors.grey[200],
+                    child: Icon(
+                      category.icon,
+                      size: 40,
+                      color: category.color,
+                    ),
+                  ),
+                ),
               ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+              // Gradient overlay for better text readability (darker at bottom)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.1),
+                        Colors.black.withOpacity(0.5),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Content overlay
+              Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.all(
+                    forceMobile 
+                      ? (isPortrait ? 10 : 12)
+                      : (isWeb ? 12 : 12)
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Category name on the left
+                      Expanded(
+                        child: Text(
+                          category.name,
+                          style: TextStyle(
+                            fontSize: forceMobile 
+                              ? (isPortrait ? 12 : 13)
+                              : (isWeb ? 14 : 13),
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            shadows: [
+                              Shadow(
+                                offset: Offset(0, 1),
+                                blurRadius: 4,
+                                color: Colors.black.withOpacity(0.6),
+                              ),
+                            ],
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      // Small icon/image on the right (similar to Fresha)
+                      Container(
+                        width: forceMobile 
+                          ? (isPortrait ? 36 : 40)
+                          : (isWeb ? 44 : 40),
+                        height: forceMobile 
+                          ? (isPortrait ? 36 : 40)
+                          : (isWeb ? 44 : 40),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.25),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.4),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          category.icon,
+                          size: forceMobile 
+                            ? (isPortrait ? 18 : 20)
+                            : (isWeb ? 22 : 20),
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

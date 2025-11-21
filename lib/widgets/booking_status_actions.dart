@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/booking_models.dart';
 import '../models/service.dart';
 import '../models/review_models.dart';
 import '../models/user_state.dart';
 import '../services/firebase_firestore_service.dart';
 import '../services/review_service.dart';
+import '../services/booking_workflow_service.dart';
 import '../widgets/review_submission_dialog.dart';
+import '../widgets/payment_confirmation_dialog.dart';
+import '../widgets/pin_display_dialog.dart';
 
 class BookingStatusActions extends StatefulWidget {
   final Booking booking;
@@ -26,6 +31,8 @@ class BookingStatusActions extends StatefulWidget {
 
 class _BookingStatusActionsState extends State<BookingStatusActions> {
   final FirebaseFirestoreService _firestoreService = FirebaseFirestoreService();
+  final BookingWorkflowService _workflowService = BookingWorkflowService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
 
   @override
@@ -196,13 +203,45 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
     final status = widget.booking.status;
     final isProfessional = widget.isServiceProfessional;
     final travelMode = widget.booking.finalTravelMode;
+    
+    // Check if booking is in "on_my_way" state (onMyWayAt is set but job hasn't started)
+    final isOnMyWay = widget.booking.onMyWayAt != null && widget.booking.jobStartedAt == null;
+
+    // Handle "on_my_way" status first
+    if (isOnMyWay) {
+      // When status is "on_my_way", the person at the destination enters PIN to verify arrival
+      // If customer is traveling: professional enters PIN
+      // If professional is traveling: customer enters PIN
+      final isCustomerTraveling = travelMode == TravelMode.customerTravels;
+      final isProTraveling = travelMode == TravelMode.proTravels;
+      
+      if (isCustomerTraveling && isProfessional) {
+        // Customer is traveling, professional at shop enters PIN
+        actions.add(BookingAction(
+          label: 'Enter PIN to Start',
+          icon: Icons.lock,
+          color: Colors.green,
+          action: BookingActionType.markJobStarted,
+        ));
+      } else if (isProTraveling && !isProfessional) {
+        // Professional is traveling, customer enters PIN
+        actions.add(BookingAction(
+          label: 'Enter PIN to Start',
+          icon: Icons.lock,
+          color: Colors.green,
+          action: BookingActionType.markJobStarted,
+        ));
+      }
+      // Person who is traveling doesn't enter PIN - they already have it
+      return actions;
+    }
 
     switch (status) {
       case BookingStatus.confirmed:
         // Handle "On My Way" based on travel mode
         if (_shouldShowOnMyWayAction()) {
           actions.add(BookingAction(
-            label: 'Mark On My Way',
+            label: 'On My Way',
             icon: Icons.directions_car,
             color: Colors.blue,
             action: BookingActionType.markOnMyWay,
@@ -305,7 +344,32 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
     try {
       switch (action.action) {
         case BookingActionType.markOnMyWay:
-          await _firestoreService.markProfessionalOnWay(widget.booking.id);
+          final userState = Provider.of<UserState>(context, listen: false);
+          if (userState.userId != null) {
+            // Set "On My Way" status and get the generated PIN
+            final pin = await _workflowService.setOnMyWay(
+              bookingId: widget.booking.id,
+              userId: userState.userId!,
+            );
+            
+            // Show PIN to the customer (or professional if they're traveling)
+            final isProfessional = widget.isServiceProfessional;
+            final travelMode = widget.booking.finalTravelMode;
+            final isCustomerTraveling = travelMode == TravelMode.customerTravels && !isProfessional;
+            final isProTraveling = travelMode == TravelMode.proTravels && isProfessional;
+            
+            if (isCustomerTraveling || isProTraveling) {
+              // Show PIN to the person who clicked "On My Way"
+              await PinDisplayDialog.show(
+                context,
+                pin: pin,
+                isCustomer: !isProfessional,
+                instruction: isCustomerTraveling
+                    ? 'Show this PIN to your service professional when you arrive:'
+                    : 'Ask the customer for this PIN when you arrive:',
+              );
+            }
+          }
           break;
           
         case BookingActionType.markJobStarted:
@@ -318,10 +382,13 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
           
         case BookingActionType.acceptJobCompleted:
           print('🔍 [BookingStatusActions] Accept Job Completed action triggered');
-          await _firestoreService.acceptJobAsCompleted(widget.booking.id);
+          await _workflowService.confirmJobCompletion(
+            bookingId: widget.booking.id,
+          );
           print('🔍 [BookingStatusActions] Job accepted as completed, showing review prompt');
           // Show review prompt after accepting job as completed
           await _showReviewPrompt();
+          // Note: The review prompt is already shown in _showReviewPrompt()
           break;
           
         case BookingActionType.rateCustomer:
@@ -362,26 +429,54 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
 
   Future<void> _showPinDialog() async {
     final pinController = TextEditingController();
+    final isProfessional = widget.isServiceProfessional;
+    final travelMode = widget.booking.finalTravelMode;
+    
+    // Determine who is traveling to set the correct dialog text
+    final isCustomerTraveling = travelMode == TravelMode.customerTravels;
+    final isProTraveling = travelMode == TravelMode.proTravels;
+    
+    String title;
+    String instruction;
+    String labelText;
+    
+    if (isCustomerTraveling && isProfessional) {
+      // Customer is traveling, professional enters PIN
+      title = 'Enter Customer PIN';
+      instruction = 'Please enter the 4-digit PIN shown by the customer to start the job:';
+      labelText = 'Customer PIN (4 digits)';
+    } else if (isProTraveling && !isProfessional) {
+      // Professional is traveling, customer enters PIN
+      title = 'Enter Professional PIN';
+      instruction = 'Please enter the 4-digit PIN shown by the professional to start the job:';
+      labelText = 'Professional PIN (4 digits)';
+    } else {
+      // Fallback
+      title = 'Enter PIN';
+      instruction = 'Please enter the 4-digit PIN to start the job:';
+      labelText = 'PIN (4 digits)';
+    }
     
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Enter Customer PIN'),
+          title: Text(title),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Please enter the customer PIN to start the job:'),
+              Text(instruction),
               const SizedBox(height: 16),
               TextField(
                 controller: pinController,
-                decoration: const InputDecoration(
-                  labelText: 'Customer PIN',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: labelText,
+                  border: const OutlineInputBorder(),
+                  hintText: '0000',
                 ),
                 keyboardType: TextInputType.number,
-                maxLength: 6,
+                maxLength: 4,
               ),
             ],
           ),
@@ -394,10 +489,19 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
               onPressed: () async {
                 if (pinController.text.isNotEmpty) {
                   Navigator.of(context).pop();
-                  await _firestoreService.markJobStarted(
-                    widget.booking.id, 
-                    pinController.text,
+                  final isValid = await _workflowService.verifyPinAndStartJob(
+                    bookingId: widget.booking.id,
+                    pin: pinController.text,
                   );
+                  
+                  if (!isValid && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Invalid PIN. Please try again.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
               },
               child: const Text('Start Job'),
@@ -441,14 +545,44 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
               onPressed: () async {
                 print('🔍 [BookingStatusActions] Mark Completed button pressed');
                 Navigator.of(context).pop();
-                await _firestoreService.markJobCompleted(
-                  widget.booking.id,
-                  notes: notesController.text.isNotEmpty ? notesController.text : null,
-                );
                 
-                print('🔍 [BookingStatusActions] Job marked as completed, showing review prompt');
-                // Show review prompt after marking as completed
-                await _showReviewPrompt();
+                try {
+                  // Mark job as completed
+                  // On web, PostgreSQL operations may fail, so we handle gracefully
+                  if (kIsWeb) {
+                    // On web, only update Firestore (PostgreSQL not available)
+                    await _firestore.collection('bookings').doc(widget.booking.id).update({
+                      'status': 'completed',
+                      'jobCompletedAt': FieldValue.serverTimestamp(),
+                      'statusNotes': notesController.text.isNotEmpty ? notesController.text : null,
+                      'updatedAt': FieldValue.serverTimestamp(),
+                    });
+                    print('✅ [BookingStatusActions] Job marked as completed (web - Firestore only)');
+                  } else {
+                    // On mobile, use workflow service (handles both Firestore and PostgreSQL)
+                    await _workflowService.markJobCompleted(
+                      bookingId: widget.booking.id,
+                      notes: notesController.text.isNotEmpty ? notesController.text : null,
+                    );
+                    print('✅ [BookingStatusActions] Job marked as completed');
+                  }
+                  
+                  // Show payment confirmation dialog for professional
+                  final userState = Provider.of<UserState>(context, listen: false);
+                  if (userState.userId != null && widget.isServiceProfessional) {
+                    await _showPaymentConfirmationDialog();
+                  }
+                } catch (e) {
+                  print('❌ [BookingStatusActions] Error marking job completed: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error marking job as completed: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
               },
               child: const Text('Mark Completed'),
             ),
@@ -501,8 +635,11 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
       revieweeId: widget.booking.professionalId,
       revieweeName: widget.booking.professionalName,
       reviewType: ReviewType.customerToProfessional,
-      onReviewSubmitted: () {
+      onReviewSubmitted: () async {
         print('✅ [BookingStatusActions] Review submitted successfully');
+        // Also submit to PostgreSQL via workflow service
+        // Note: The actual rating and review text will be handled by ReviewService
+        // This is just a placeholder - the workflow service will be called from ReviewService
         widget.onStatusUpdated?.call();
       },
     );
@@ -523,6 +660,7 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
     if (hasReviewed) return;
 
     // Show review dialog for professional to rate customer
+    // ReviewService will handle saving to both Firestore and PostgreSQL
     await ReviewSubmissionDialog.show(
       context,
       bookingId: widget.booking.id,
@@ -533,6 +671,26 @@ class _BookingStatusActionsState extends State<BookingStatusActions> {
       revieweeName: widget.booking.customerName,
       reviewType: ReviewType.professionalToCustomer,
       onReviewSubmitted: () {
+        widget.onStatusUpdated?.call();
+      },
+    );
+  }
+
+  Future<void> _showPaymentConfirmationDialog() async {
+    final userState = Provider.of<UserState>(context, listen: false);
+    if (userState.userId == null) return;
+
+    await PaymentConfirmationDialog.show(
+      context,
+      bookingId: widget.booking.id,
+      professionalId: userState.userId!,
+      amount: widget.booking.agreedPrice,
+      onPaymentConfirmed: () async {
+        await _workflowService.confirmPayment(
+          bookingId: widget.booking.id,
+          professionalId: userState.userId!,
+          amount: widget.booking.agreedPrice,
+        );
         widget.onStatusUpdated?.call();
       },
     );

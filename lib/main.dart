@@ -19,6 +19,7 @@ import 'services/chat_service.dart';
 import 'services/api_key_service.dart';
 import 'services/openai_service.dart';
 import 'services/network_connectivity_service.dart';
+import 'services/comprehensive_notification_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -45,6 +46,17 @@ class AppInitializer extends StatelessWidget {
     
     // Initialize OpenAI service
     OpenAIService().initialize();
+    
+    // Initialize comprehensive notification service
+    try {
+      final notificationService = ComprehensiveNotificationService();
+      await notificationService.initialize();
+      print('✅ [Main] Comprehensive notification service initialized');
+    } catch (e) {
+      // Don't fail app startup if notification initialization fails
+      print('⚠️ [Main] Failed to initialize notification service: $e');
+      print('⚠️ [Main] Notifications may not work properly');
+    }
   }
   
   @override
@@ -206,11 +218,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   Future<void> _initializeFCMToken(String userId) async {
     try {
-      final notificationService = SimpleNotificationService();
-      await notificationService.initialize();
-      print('FCM token initialized for user: $userId');
+      // Use ComprehensiveNotificationService instead of SimpleNotificationService
+      final notificationService = ComprehensiveNotificationService();
+      
+      // Ensure the service is initialized
+      if (!notificationService.isInitialized) {
+        await notificationService.initialize();
+      }
+      
+      // Explicitly ensure FCM token is saved now that we have userId
+      await notificationService.ensureFCMTokenSaved();
+      
+      print('✅ [Main] FCM token initialized for user: $userId');
     } catch (e) {
-      print('Failed to initialize FCM token for user $userId: $e');
+      print('❌ [Main] Failed to initialize FCM token for user $userId: $e');
     }
   }
 

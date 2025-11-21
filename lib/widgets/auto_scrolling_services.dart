@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vehicle_damage_app/widgets/glow_card.dart';
+import '../utils/category_image_helper.dart';
 
 class AutoScrollingServices extends StatefulWidget {
   final VoidCallback? onServiceTap;
@@ -151,14 +152,17 @@ class _AutoScrollingServicesState extends State<AutoScrollingServices>
 
   Widget _buildServiceItem(Map<String, dynamic> service, double height) {
     final categoryColor = service['color'] as Color;
+    final serviceName = service['name'] as String;
+    final imageUrl = CategoryImageHelper.getCategoryImageUrl(serviceName);
     
     return Container(
       height: height,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: ServiceCategoryCard(
-        name: service['name'] as String,
+        name: serviceName,
         icon: service['icon'] as IconData,
         color: categoryColor,
+        imageUrl: imageUrl,
         onTap: widget.onServiceTap ?? () {
           Navigator.pushNamed(context, '/serviceRequest');
         },

@@ -85,9 +85,13 @@ class Booking {
       professionalName: map['professionalName'] ?? '',
       serviceTitle: map['serviceTitle'] ?? '',
       serviceDescription: map['serviceDescription'] ?? '',
-      agreedPrice: (map['agreedPrice'] as num).toDouble(),
-      scheduledStartTime: (map['scheduledStartTime'] as Timestamp).toDate(),
-      scheduledEndTime: (map['scheduledEndTime'] as Timestamp).toDate(),
+      agreedPrice: (map['agreedPrice'] as num?)?.toDouble() ?? 0.0,
+      scheduledStartTime: map['scheduledStartTime'] != null 
+          ? (map['scheduledStartTime'] as Timestamp).toDate()
+          : DateTime.now(),
+      scheduledEndTime: map['scheduledEndTime'] != null
+          ? (map['scheduledEndTime'] as Timestamp).toDate()
+          : DateTime.now().add(const Duration(hours: 1)),
       location: map['location'] ?? '',
       deliverables: List<String>.from(map['deliverables'] ?? []),
       importantPoints: List<String>.from(map['importantPoints'] ?? []),
@@ -95,8 +99,12 @@ class Booking {
         (e) => e.name == map['status'],
         orElse: () => BookingStatus.pending,
       ),
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      updatedAt: (map['updatedAt'] as Timestamp).toDate(),
+      createdAt: map['createdAt'] != null
+          ? (map['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
+      updatedAt: map['updatedAt'] != null
+          ? (map['updatedAt'] as Timestamp).toDate()
+          : DateTime.now(),
       notes: map['notes'],
       metadata: map['metadata'],
       confirmedAt: map['confirmedAt'] != null ? (map['confirmedAt'] as Timestamp).toDate() : null,
@@ -282,7 +290,7 @@ class JobSummary {
       professionalId: map['professionalId'] ?? '',
       originalEstimate: map['originalEstimate'] ?? '',
       conversationSummary: map['conversationSummary'] ?? '',
-      extractedPrice: (map['extractedPrice'] as num).toDouble(),
+      extractedPrice: (map['extractedPrice'] as num?)?.toDouble() ?? 0.0,
       extractedStartTime: map['extractedStartTime'] != null 
           ? (map['extractedStartTime'] as Timestamp).toDate() 
           : null,
@@ -292,8 +300,10 @@ class JobSummary {
       extractedLocation: map['extractedLocation'],
       extractedDeliverables: List<String>.from(map['extractedDeliverables'] ?? []),
       extractedImportantPoints: List<String>.from(map['extractedImportantPoints'] ?? []),
-      confidenceScore: (map['confidenceScore'] as num).toDouble(),
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
+      confidenceScore: (map['confidenceScore'] as num?)?.toDouble() ?? 0.8,
+      createdAt: map['createdAt'] != null
+          ? (map['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
       rawAnalysis: map['rawAnalysis'],
       finalTravelMode: map['finalTravelMode'] != null 
           ? TravelMode.values.firstWhere(

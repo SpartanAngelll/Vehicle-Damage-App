@@ -21,8 +21,10 @@ import '../widgets/deposit_request_dialog.dart';
 import '../widgets/balance_payment_dialog.dart';
 import '../widgets/review_submission_dialog.dart';
 import '../widgets/web_layout.dart';
+import '../widgets/pin_display_dialog.dart';
 import '../models/review_models.dart';
 import '../services/review_service.dart';
+import '../services/booking_workflow_service.dart';
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key});
@@ -1010,9 +1012,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
 
     final status = bookingModel.status;
+    final rawStatus = booking['status']?.toString().toLowerCase() ?? '';
     final isProfessional = _isServiceProfessional();
     final travelMode = bookingModel.finalTravelMode;
-
 
     // Determine the appropriate action based on status and role
     String actionLabel;
@@ -1020,69 +1022,100 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     Color actionColor;
     VoidCallback? onPressed;
 
-    switch (status) {
-      case BookingStatus.pending:
-      case BookingStatus.confirmed:
-        // Check if "On My Way" should be shown based on travel mode
-        if (_shouldShowOnMyWayAction(bookingModel, isProfessional)) {
-          actionLabel = 'On My Way';
-          actionIcon = Icons.directions_car;
-          actionColor = Colors.blue;
-          onPressed = () => _handleOnMyWayAction(bookingModel);
-        } else if (isProfessional && _shouldShowMarkJobStarted(bookingModel)) {
-          // Professional can mark job started when they arrive
-          actionLabel = 'Mark Job Started';
-          actionIcon = Icons.play_arrow;
+    // Check for "on_my_way" status first (handled as string in Firestore)
+    if (rawStatus == 'on_my_way') {
+      // When status is "on_my_way", the person at the destination enters PIN to verify arrival
+      // If customer is traveling: professional enters PIN
+      // If professional is traveling: customer enters PIN
+      final isCustomerTraveling = travelMode == TravelMode.customerTravels;
+      final isProTraveling = travelMode == TravelMode.proTravels;
+      
+      if (bookingModel.jobStartedAt == null) {
+        if (isCustomerTraveling && isProfessional) {
+          // Customer is traveling, professional at shop enters PIN
+          actionLabel = 'Enter PIN to Start';
+          actionIcon = Icons.lock;
+          actionColor = Colors.green;
+          onPressed = () => _handleMarkJobStarted(bookingModel);
+        } else if (isProTraveling && !isProfessional) {
+          // Professional is traveling, customer enters PIN
+          actionLabel = 'Enter PIN to Start';
+          actionIcon = Icons.lock;
           actionColor = Colors.green;
           onPressed = () => _handleMarkJobStarted(bookingModel);
         } else {
-          // Show "View Details" if no action is available
+          // Person who is traveling doesn't enter PIN - they already have it
           return _buildViewDetailsButton(booking);
         }
-        break;
-        
-      case BookingStatus.inProgress:
-        if (isProfessional) {
-          actionLabel = 'Mark Job Completed';
-          actionIcon = Icons.check_circle;
-          actionColor = Colors.orange;
-          onPressed = () => _handleMarkJobCompleted(bookingModel);
-        } else {
-          // Customer can't take action during in-progress
-          return _buildViewDetailsButton(booking);
-        }
-        break;
-        
-      case BookingStatus.completed:
-        if (!isProfessional) {
-          actionLabel = 'Accept Job as Completed';
-          actionIcon = Icons.thumb_up;
-          actionColor = Colors.green;
-          onPressed = () => _handleAcceptJobCompleted(bookingModel);
-        } else {
-          // Professional can't take action after completion
-          return _buildViewDetailsButton(booking);
-        }
-        break;
-        
-      case BookingStatus.reviewed:
-        // Allow review actions even for reviewed bookings
-        if (!isProfessional) {
-          actionLabel = 'Rate Professional';
-          actionIcon = Icons.star_rate;
-          actionColor = Colors.amber;
-          onPressed = () => _handleRateProfessional(bookingModel);
-        } else {
-          actionLabel = 'Rate Customer';
-          actionIcon = Icons.star_rate;
-          actionColor = Colors.amber;
-          onPressed = () => _handleRateCustomer(bookingModel);
-        }
-        break;
-        
-      default:
-        // For other statuses, show view details
+      } else {
+        // Job already started - show view details
         return _buildViewDetailsButton(booking);
+      }
+    } else {
+      switch (status) {
+        case BookingStatus.pending:
+        case BookingStatus.confirmed:
+          // Check if "On My Way" should be shown based on travel mode
+          if (_shouldShowOnMyWayAction(bookingModel, isProfessional)) {
+            actionLabel = 'On My Way';
+            actionIcon = Icons.directions_car;
+            actionColor = Colors.blue;
+            onPressed = () => _handleOnMyWayAction(bookingModel);
+          } else if (isProfessional && _shouldShowMarkJobStarted(bookingModel)) {
+            // Professional can mark job started when they arrive
+            actionLabel = 'Enter PIN to Start';
+            actionIcon = Icons.lock;
+            actionColor = Colors.green;
+            onPressed = () => _handleMarkJobStarted(bookingModel);
+          } else {
+            // Show "View Details" if no action is available
+            return _buildViewDetailsButton(booking);
+          }
+          break;
+          
+        case BookingStatus.inProgress:
+          if (isProfessional) {
+            actionLabel = 'Mark Job Completed';
+            actionIcon = Icons.check_circle;
+            actionColor = Colors.orange;
+            onPressed = () => _handleMarkJobCompleted(bookingModel);
+          } else {
+            // Customer can't take action during in-progress
+            return _buildViewDetailsButton(booking);
+          }
+          break;
+          
+        case BookingStatus.completed:
+          if (!isProfessional) {
+            actionLabel = 'Accept Job as Completed';
+            actionIcon = Icons.thumb_up;
+            actionColor = Colors.green;
+            onPressed = () => _handleAcceptJobCompleted(bookingModel);
+          } else {
+            // Professional can't take action after completion
+            return _buildViewDetailsButton(booking);
+          }
+          break;
+          
+        case BookingStatus.reviewed:
+          // Allow review actions even for reviewed bookings
+          if (!isProfessional) {
+            actionLabel = 'Rate Professional';
+            actionIcon = Icons.star_rate;
+            actionColor = Colors.amber;
+            onPressed = () => _handleRateProfessional(bookingModel);
+          } else {
+            actionLabel = 'Rate Customer';
+            actionIcon = Icons.star_rate;
+            actionColor = Colors.amber;
+            onPressed = () => _handleRateCustomer(bookingModel);
+          }
+          break;
+          
+        default:
+          // For other statuses, show view details
+          return _buildViewDetailsButton(booking);
+      }
     }
 
     return Container(
@@ -1197,20 +1230,42 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   Future<void> _handleOnMyWayAction(Booking booking) async {
     try {
-      final firestoreService = FirebaseFirestoreService();
-      await firestoreService.markProfessionalOnWay(booking.id);
+      final userState = Provider.of<UserState>(context, listen: false);
+      if (userState.userId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('User not logged in'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final workflowService = BookingWorkflowService();
       
-      // Show PIN for verification based on travel mode
-      if (booking.finalTravelMode == TravelMode.customerTravels) {
-        // Customer is traveling to shop - show PIN for professional verification
-        if (!_isServiceProfessional()) {
-          await _showPinDisplayDialog(booking);
-        }
-      } else if (booking.finalTravelMode == TravelMode.proTravels) {
-        // Professional is traveling to customer - show PIN for customer verification
-        if (_isServiceProfessional()) {
-          await _showPinDisplayDialog(booking);
-        }
+      // Set "On My Way" status and get the generated PIN
+      final pin = await workflowService.setOnMyWay(
+        bookingId: booking.id,
+        userId: userState.userId!,
+      );
+      
+      // Show PIN to the customer (or professional if they're traveling)
+      final isProfessional = _isServiceProfessional();
+      final isCustomerTraveling = booking.finalTravelMode == TravelMode.customerTravels && !isProfessional;
+      final isProTraveling = booking.finalTravelMode == TravelMode.proTravels && isProfessional;
+      
+      if (isCustomerTraveling || isProTraveling) {
+        // Show PIN to the person who clicked "On My Way"
+        await PinDisplayDialog.show(
+          context,
+          pin: pin,
+          isCustomer: !isProfessional,
+          instruction: isCustomerTraveling
+              ? 'Show this PIN to your service professional when you arrive:'
+              : 'Ask the customer for this PIN when you arrive:',
+        );
       }
       
       // Refresh the bookings to show updated status
@@ -1238,7 +1293,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   Future<void> _handleMarkJobStarted(Booking booking) async {
     // Show PIN verification dialog
-    final enteredPin = await _showPinVerificationDialog();
+    final enteredPin = await _showPinVerificationDialog(booking);
     if (enteredPin == null) return; // User cancelled
 
     try {
@@ -1247,9 +1302,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       
       if (!isValidPin) {
         if (mounted) {
+          final isProfessional = _isServiceProfessional();
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Invalid PIN. Please check with the customer.'),
+            SnackBar(
+              content: Text('Invalid PIN. Please check with the ${isProfessional ? "customer" : "professional"}.'),
               backgroundColor: Colors.red,
             ),
           );
@@ -1306,26 +1362,53 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
-  Future<String?> _showPinVerificationDialog() async {
+  Future<String?> _showPinVerificationDialog(Booking booking) async {
     final pinController = TextEditingController();
+    final isProfessional = _isServiceProfessional();
+    final travelMode = booking.finalTravelMode;
+    
+    // Determine who is traveling to set the correct dialog text
+    final isCustomerTraveling = travelMode == TravelMode.customerTravels;
+    final isProTraveling = travelMode == TravelMode.proTravels;
+    
+    String title;
+    String instruction;
+    String labelText;
+    
+    if (isCustomerTraveling && isProfessional) {
+      // Customer is traveling, professional enters PIN
+      title = 'Enter Customer PIN';
+      instruction = 'Please enter the 4-digit PIN shown by the customer to start the job:';
+      labelText = 'Customer PIN';
+    } else if (isProTraveling && !isProfessional) {
+      // Professional is traveling, customer enters PIN
+      title = 'Enter Professional PIN';
+      instruction = 'Please enter the 4-digit PIN shown by the professional to start the job:';
+      labelText = 'Professional PIN';
+    } else {
+      // Fallback
+      title = 'Enter PIN';
+      instruction = 'Please enter the 4-digit PIN to start the job:';
+      labelText = 'PIN';
+    }
     
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Verify Customer PIN'),
+          title: Text(title),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Please enter the 4-digit PIN shown on the customer\'s screen:'),
+              Text(instruction),
               const SizedBox(height: 16),
               TextField(
                 controller: pinController,
-                decoration: const InputDecoration(
-                  labelText: 'Customer PIN',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                decoration: InputDecoration(
+                  labelText: labelText,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock),
                 ),
                 keyboardType: TextInputType.number,
                 obscureText: true,
@@ -1488,10 +1571,18 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Future<void> _handleMarkJobCompleted(Booking booking) async {
     try {
       // Check if balance payment is required BEFORE marking job as completed
-      final paymentService = PaymentWorkflowService.instance;
-      await paymentService.initialize();
-      
-      final isBalanceRequired = await paymentService.isBalancePaymentRequired(booking.id);
+      // Skip PostgreSQL check on web (Platform not available)
+      bool isBalanceRequired = false;
+      if (!kIsWeb) {
+        try {
+          final paymentService = PaymentWorkflowService.instance;
+          await paymentService.initialize();
+          isBalanceRequired = await paymentService.isBalancePaymentRequired(booking.id);
+        } catch (e) {
+          print('⚠️ [MyBookings] Failed to check balance payment (may be on web): $e');
+          // Continue without balance check on web
+        }
+      }
       
       if (isBalanceRequired) {
         // Show error message that balance must be paid first
@@ -1507,9 +1598,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         return;
       }
       
-      // Only mark job as completed if no balance is required
-      final firestoreService = FirebaseFirestoreService();
-      await firestoreService.markJobCompleted(booking.id);
+      // Use workflow service to mark job as completed (handles both Firestore and PostgreSQL)
+      final workflowService = BookingWorkflowService();
+      await workflowService.markJobCompleted(
+        bookingId: booking.id,
+        notes: null,
+      );
       
       // Refresh the bookings to show updated status
       _loadBookings();
@@ -1521,6 +1615,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             backgroundColor: Colors.green,
           ),
         );
+        
+        // Show payment confirmation dialog for professional (on web, this will work)
+        final userState = Provider.of<UserState>(context, listen: false);
+        if (userState.userId != null && _isServiceProfessional()) {
+          // Payment confirmation will be handled by booking_status_actions widget
+          // But we can also show it here if needed
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1595,8 +1696,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   Future<void> _handleAcceptJobCompleted(Booking booking) async {
     try {
-      final firestoreService = FirebaseFirestoreService();
-      await firestoreService.acceptJobAsCompleted(booking.id);
+      final workflowService = BookingWorkflowService();
+      
+      // Confirm job completion (this updates status to 'reviewed')
+      await workflowService.confirmJobCompletion(
+        bookingId: booking.id,
+      );
       
       // Refresh the bookings to show updated status
       _loadBookings();
@@ -1608,6 +1713,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             backgroundColor: Colors.green,
           ),
         );
+        
+        // Show review prompt after accepting job as completed
+        await _showReviewPrompt(booking);
       }
     } catch (e) {
       if (mounted) {
@@ -1618,6 +1726,50 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           ),
         );
       }
+    }
+  }
+  
+  Future<void> _showReviewPrompt(Booking booking) async {
+    try {
+      final userState = context.read<UserState>();
+      final reviewService = ReviewService();
+      
+      if (userState.userId == null) {
+        return;
+      }
+
+      // Check if customer has already reviewed this booking
+      final hasReviewed = await reviewService.hasCustomerReviewedBooking(
+        booking.id,
+        userState.userId!,
+      );
+
+      if (hasReviewed) {
+        return;
+      }
+
+      // Show review dialog for customer to rate professional
+      final customerName = userState.currentUser?.displayName ?? 
+                          userState.email?.split('@')[0] ?? 
+                          'Customer';
+      final customerPhotoUrl = userState.currentUser?.photoURL;
+      
+      await ReviewSubmissionDialog.show(
+        context,
+        bookingId: booking.id,
+        reviewerId: userState.userId!,
+        reviewerName: customerName,
+        reviewerPhotoUrl: customerPhotoUrl,
+        revieweeId: booking.professionalId,
+        revieweeName: booking.professionalName,
+        reviewType: ReviewType.customerToProfessional,
+        onReviewSubmitted: () async {
+          // Refresh bookings after review submission
+          _loadBookings();
+        },
+      );
+    } catch (e) {
+      print('❌ [MyBookings] Error showing review prompt: $e');
     }
   }
 

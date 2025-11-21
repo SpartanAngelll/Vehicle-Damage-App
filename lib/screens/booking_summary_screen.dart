@@ -380,41 +380,52 @@ END:VCALENDAR''';
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Success Header
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green[200]!),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.check_circle,
-                    color: Colors.green[600],
-                    size: 48,
+            Builder(
+              builder: (context) {
+                final theme = Theme.of(context);
+                final colorScheme = theme.colorScheme;
+                final isDark = theme.brightness == Brightness.dark;
+                final successColor = isDark 
+                    ? colorScheme.secondary 
+                    : colorScheme.secondary;
+                
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: colorScheme.secondaryContainer.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: successColor.withOpacity(0.5)),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Booking Confirmed!',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green[800],
-                    ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: successColor,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Booking Confirmed!',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: successColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Your service has been successfully booked',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: colorScheme.onSurface,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Your service has been successfully booked',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.green[700],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
+                );
+              },
             ),
             
             const SizedBox(height: 24),
@@ -498,8 +509,6 @@ END:VCALENDAR''';
                 icon: const Icon(Icons.list_alt),
                 label: const Text('View My Bookings'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
@@ -509,23 +518,33 @@ END:VCALENDAR''';
             
             // Status Indicators
             if (_isSaving)
-              const Center(
+              Center(
                 child: Column(
                   children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 8),
-                    Text('Saving booking...'),
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Saving booking...',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
                   ],
                 ),
               ),
             
             if (_isAddingToCalendar)
-              const Center(
+              Center(
                 child: Column(
                   children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 8),
-                    Text('Adding to calendar...'),
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Adding to calendar...',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -536,25 +555,32 @@ END:VCALENDAR''';
   }
 
   Widget _buildSection(String title, IconData icon, List<Widget> children) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: isDark 
+            ? colorScheme.surfaceContainerHigh 
+            : colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: Colors.blue, size: 24),
+              Icon(icon, color: colorScheme.primary, size: 24),
               const SizedBox(width: 12),
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
                 ),
               ),
             ],
@@ -567,6 +593,9 @@ END:VCALENDAR''';
   }
 
   Widget _buildDetailRow(String label, String value, {bool isBullet = false}) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -575,10 +604,10 @@ END:VCALENDAR''';
           if (isBullet)
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Colors.blue,
+                color: colorScheme.primary,
               ),
             )
           else
@@ -586,10 +615,10 @@ END:VCALENDAR''';
               width: 100,
               child: Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey,
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -597,9 +626,9 @@ END:VCALENDAR''';
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
-                color: Colors.black87,
+                color: colorScheme.onSurface,
               ),
             ),
           ),

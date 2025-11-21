@@ -159,6 +159,8 @@ service cloud.firestore {
         resource.data.customerId == request.auth.uid ||
         resource.data.professionalId == request.auth.uid
       );
+      // Allow list queries for authenticated users (needed for booking queries)
+      allow list: if isAuthenticated();
     }
     
     // Professional availability - professionals can manage their own, customers can read
@@ -300,16 +302,36 @@ service cloud.firestore {
       allow delete: if isAuthenticated();
     }
     
-    // Notifications - users can only read/write their own notifications
+    // Notifications - users can read their own notifications, and create notifications for any user
     match /notifications/{notificationId} {
-      allow read, write: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      // Allow read if user owns the notification
+      allow read: if isAuthenticated() && (
+        resource == null || // Allow read if document doesn't exist (for queries)
+        resource.data.userId == request.auth.uid
+      );
+      // Allow create for any authenticated user (notifications are sent TO users, not BY users)
+      // The userId field indicates the recipient, not the sender
+      allow create: if isAuthenticated() && request.resource.data.userId != null;
+      // Allow update if user owns the notification OR if updating status/sentAt/readAt fields
+      // This allows the notification service to update status after sending
+      // We check that userId doesn't change to prevent unauthorized updates
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || // User updating their own notification
+        // Allow updates to status/sentAt/readAt fields as long as userId doesn't change
+        (request.resource.data.userId == resource.data.userId &&
+         request.resource.data.userId != null)
+      );
+      // Allow delete if user owns the notification
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Allow list queries for authenticated users (needed for scheduled notifications)
+      allow list: if isAuthenticated();
     }
     
-    // Notification templates - allow authenticated users to read
+    // Notification templates - allow authenticated users to read and create (for default templates)
     match /notification_templates/{templateId} {
       allow read: if isAuthenticated();
-      allow write: if false; // Only admins can modify templates
+      allow create: if isAuthenticated(); // Allow creation of default templates
+      allow update, delete: if false; // Only admins can modify/delete templates
     }
     
     // Notification channels - allow authenticated users to read
@@ -320,7 +342,19 @@ service cloud.firestore {
     
     // Notification preferences - users can only read/write their own preferences
     match /notification_preferences/{userId} {
-      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      // Allow read if user matches (even if document doesn't exist)
+      // This allows reading your own preferences even if the document hasn't been created yet
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      // Allow create if user is setting their own userId
+      allow create: if isAuthenticated() && request.auth.uid == userId && request.resource.data.userId == userId;
+      // Allow update if user matches (even if document doesn't exist - will create it)
+      allow update: if isAuthenticated() && request.auth.uid == userId && (
+        resource == null || // Allow update even if document doesn't exist yet (creates it)
+        resource.data.userId == userId || // Or if document exists and user owns it
+        request.resource.data.userId == userId // Or if setting userId to match
+      );
+      // Allow delete if user matches
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
     }
     
     // Job summaries - allow participants to read/write

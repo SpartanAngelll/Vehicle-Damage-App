@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../utils/category_image_helper.dart';
 
 class GlowCard extends StatelessWidget {
   final Widget child;
@@ -99,6 +101,7 @@ class ServiceCategoryCard extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
   final bool isSelected;
+  final String? imageUrl;
 
   const ServiceCategoryCard({
     Key? key,
@@ -107,109 +110,156 @@ class ServiceCategoryCard extends StatelessWidget {
     required this.color,
     this.onTap,
     this.isSelected = false,
+    this.imageUrl,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final backgroundImageUrl = imageUrl ?? CategoryImageHelper.getCategoryImageUrl(name);
+    
     return GlowCard(
       glowColor: isSelected ? Colors.green : color,
       borderRadius: 20,
-      padding: EdgeInsets.all(12),
+      padding: EdgeInsets.zero,
       onTap: onTap,
-      child: Stack(
-        children: [
-          // Main content container
-          Container(
-            width: double.infinity,
-            height: double.infinity,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Icon container with consistent sizing
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: isSelected 
-                      ? Colors.green.withOpacity(0.15)
-                      : color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isSelected 
-                        ? Colors.green.withOpacity(0.5)
-                        : color.withOpacity(0.3),
-                      width: isSelected ? 2 : 1,
-                    ),
-                  ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          children: [
+            // Background image
+            Positioned.fill(
+              child: CachedNetworkImage(
+                imageUrl: backgroundImageUrl,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  color: color.withOpacity(0.1),
                   child: Center(
-                    child: Icon(
-                      icon,
-                      size: 24,
-                      color: isSelected ? Colors.green : color,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
                     ),
                   ),
                 ),
-                
-                // Spacing between icon and text
-                SizedBox(height: 12),
-                
-                // Text container with proper constraints
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    child: Text(
-                      name,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontFamily: 'Inter',
-                        color: isSelected 
-                          ? Colors.green.shade700
-                          : Theme.of(context).colorScheme.onSurface,
-                        fontSize: 13,
-                        height: 1.2,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                errorWidget: (context, url, error) => Container(
+                  color: color.withOpacity(0.1),
+                  child: Icon(
+                    icon,
+                    size: 40,
+                    color: color,
                   ),
-                ),
-              ],
-            ),
-          ),
-          
-          // Selection indicator
-          if (isSelected)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.surface,
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 2,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  Icons.check,
-                  size: 10,
-                  color: Colors.white,
                 ),
               ),
             ),
-        ],
+            // Gradient overlay for better text readability
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.1),
+                      Colors.black.withOpacity(0.5),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            // Main content container
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              padding: EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Icon container with consistent sizing
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.4),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        size: 24,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  
+                  // Spacing between icon and text
+                  SizedBox(height: 12),
+                  
+                  // Text container with proper constraints
+                  Expanded(
+                    child: Container(
+                      width: double.infinity,
+                      child: Text(
+                        name,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'Inter',
+                          color: Colors.white,
+                          fontSize: 13,
+                          height: 1.2,
+                          shadows: [
+                            Shadow(
+                              offset: Offset(0, 1),
+                              blurRadius: 4,
+                              color: Colors.black.withOpacity(0.6),
+                            ),
+                          ],
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Selection indicator
+            if (isSelected)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 2,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.check,
+                    size: 10,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -86,20 +86,27 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
             // Header
             Row(
               children: [
-                const Icon(Icons.auto_awesome, color: Colors.blue),
+                Icon(
+                  Icons.auto_awesome, 
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Booking Summary',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(null),
-                  icon: const Icon(Icons.close),
+                  icon: Icon(
+                    Icons.close,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
               ],
             ),
@@ -233,10 +240,6 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: _confirmBooking,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                    ),
                     child: const Text('Confirm Booking'),
                   ),
                 ),
@@ -249,18 +252,23 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
   }
 
   Widget _buildSection(String title, IconData icon, String content) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(icon, color: Colors.blue, size: 20),
+            Icon(icon, color: colorScheme.primary, size: 20),
             const SizedBox(width: 8),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface,
               ),
             ),
           ],
@@ -270,12 +278,17 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: isDark 
+                ? colorScheme.surfaceContainerHigh 
+                : colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
             content,
-            style: const TextStyle(fontSize: 14),
+            style: TextStyle(
+              fontSize: 14,
+              color: colorScheme.onSurface,
+            ),
           ),
         ),
       ],
@@ -283,24 +296,29 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
   }
 
   Widget _buildEditableSection(String title, IconData icon, String content, VoidCallback onEdit) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(icon, color: Colors.blue, size: 20),
+            Icon(icon, color: colorScheme.primary, size: 20),
             const SizedBox(width: 8),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface,
               ),
             ),
             const Spacer(),
             IconButton(
               onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 16),
+              icon: Icon(Icons.edit, size: 16, color: colorScheme.onSurfaceVariant),
               tooltip: 'Edit',
             ),
           ],
@@ -310,12 +328,17 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: isDark 
+                ? colorScheme.surfaceContainerHigh 
+                : colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
             content,
-            style: const TextStyle(fontSize: 14),
+            style: TextStyle(
+              fontSize: 14,
+              color: colorScheme.onSurface,
+            ),
           ),
         ),
       ],
@@ -323,24 +346,29 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
   }
 
   Widget _buildListSection(String title, IconData icon, List<String> items, VoidCallback onEdit) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(icon, color: Colors.blue, size: 20),
+            Icon(icon, color: colorScheme.primary, size: 20),
             const SizedBox(width: 8),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface,
               ),
             ),
             const Spacer(),
             IconButton(
               onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 16),
+              icon: Icon(Icons.edit, size: 16, color: colorScheme.onSurfaceVariant),
               tooltip: 'Edit',
             ),
           ],
@@ -350,13 +378,18 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: isDark 
+                ? colorScheme.surfaceContainerHigh 
+                : colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(8),
           ),
           child: items.isEmpty
-              ? const Text(
+              ? Text(
                   'No items specified',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 14, 
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,8 +398,22 @@ class _BookingConfirmationDialogState extends State<BookingConfirmationDialog> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('• ', style: TextStyle(fontSize: 14)),
-                        Expanded(child: Text(item, style: const TextStyle(fontSize: 14))),
+                        Text(
+                          '• ', 
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            item, 
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   )).toList(),

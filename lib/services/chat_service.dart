@@ -5,6 +5,7 @@ import '../models/booking_models.dart';
 import '../models/payment_models.dart';
 import '../models/booking_availability_models.dart';
 import 'postgres_payment_service.dart';
+import 'postgres_booking_service.dart';
 import 'mock_payment_service.dart';
 import 'payment_workflow_service.dart';
 import 'comprehensive_notification_service.dart';
@@ -19,6 +20,7 @@ class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
   final PostgresPaymentService _paymentService = PostgresPaymentService.instance;
+  final PostgresBookingService _postgresBookingService = PostgresBookingService.instance;
   final MockPaymentService _mockPaymentService = MockPaymentService.instance;
   final ComprehensiveNotificationService _notificationService = ComprehensiveNotificationService();
   final BookingReminderScheduler _reminderScheduler = BookingReminderScheduler();
@@ -113,20 +115,42 @@ class ChatService {
         'updatedAt': Timestamp.fromDate(now),
       });
 
-      // Send notification to the recipient
+      // Send notification to the recipient (but not to the sender)
       try {
         final chatRoom = await getChatRoom(chatRoomId);
         if (chatRoom != null) {
+          // Determine recipient: if sender is customer, recipient is professional, and vice versa
           final recipientId = senderId == chatRoom.customerId 
               ? chatRoom.professionalId 
               : chatRoom.customerId;
           
+          // CRITICAL: Multiple checks to prevent self-notifications
+          if (recipientId == null || recipientId.isEmpty) {
+            print('⚠️ [ChatService] Skipping notification - recipient ID is null or empty (sender: $senderId)');
+            return message;
+          }
+          
+          if (recipientId == senderId) {
+            print('⚠️ [ChatService] Skipping notification - recipient is same as sender (sender: $senderId, recipient: $recipientId)');
+            return message;
+          }
+          
+          // Additional validation: ensure recipientId is different from senderId (case-insensitive)
+          if (recipientId.toLowerCase().trim() == senderId.toLowerCase().trim()) {
+            print('⚠️ [ChatService] Skipping notification - recipient matches sender (case-insensitive check) (sender: $senderId, recipient: $recipientId)');
+            return message;
+          }
+          
+          print('📤 [ChatService] Sending notification to recipient: $recipientId (sender: $senderId, customerId: ${chatRoom.customerId}, professionalId: ${chatRoom.professionalId})');
           await _notificationService.sendNewChatMessageNotification(
             recipientId: recipientId,
             senderName: senderName,
             messagePreview: content.length > 100 ? '${content.substring(0, 100)}...' : content,
             chatRoomId: chatRoomId,
+            senderId: senderId, // Pass senderId to prevent self-notifications
           );
+        } else {
+          print('⚠️ [ChatService] Chat room not found, skipping notification (chatRoomId: $chatRoomId)');
         }
       } catch (e) {
         print('⚠️ [ChatService] Failed to send chat message notification: $e');
@@ -335,26 +359,41 @@ class ChatService {
     required String serviceTitle,
     required String serviceDescription,
     required String location,
+    String? customerName,
+    String? professionalName,
   }) async {
     try {
       print('🔍 [ChatService] Creating booking from summary: ${summary.id}');
+      print('🔍 [ChatService] Summary data:');
+      print('  - extractedPrice: ${summary.extractedPrice}');
+      print('  - extractedStartTime: ${summary.extractedStartTime}');
+      print('  - extractedEndTime: ${summary.extractedEndTime}');
+      print('  - extractedLocation: ${summary.extractedLocation}');
       
+      // Use values from summary (these come from the booking confirmation dialog)
       final startTime = summary.extractedStartTime ?? DateTime.now().add(const Duration(days: 1));
       final endTime = summary.extractedEndTime ?? startTime.add(const Duration(hours: 2));
+      final agreedPrice = summary.extractedPrice;
+      final serviceLocation = summary.extractedLocation ?? location;
+      
+      // Validate required fields
+      if (agreedPrice <= 0) {
+        throw Exception('Agreed price must be greater than 0');
+      }
       
       // Use the availability service to book the time slot with conflict checking
       // This ensures consistency and prevents double bookings
       final booking = await _availabilityService.bookTimeSlot(
         professionalId: summary.professionalId,
         customerId: summary.customerId,
-        customerName: '', // Will be filled from estimate if needed
-        professionalName: '', // Will be filled from estimate if needed
+        customerName: customerName ?? 'Customer',
+        professionalName: professionalName ?? 'Professional',
         startTime: startTime,
         endTime: endTime,
         serviceTitle: serviceTitle,
         serviceDescription: serviceDescription,
-        agreedPrice: summary.extractedPrice,
-        location: summary.extractedLocation ?? location,
+        agreedPrice: agreedPrice,
+        location: serviceLocation,
         deliverables: summary.extractedDeliverables,
         importantPoints: summary.extractedImportantPoints,
         notes: null,
@@ -364,68 +403,54 @@ class ChatService {
       await _bookingsCollection.doc(booking.id).update({
         'estimateId': summary.estimateId,
         'chatRoomId': summary.chatRoomId,
-        'finalTravelMode': summary.finalTravelMode,
+        'finalTravelMode': summary.finalTravelMode?.name, // Convert enum to string
         'customerAddress': summary.customerAddress,
         'shopAddress': summary.shopAddress,
         'travelFee': summary.travelFee,
         'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
       
-      // Payment workflow disabled for initial web launch
-      // Payment processing will be re-enabled when payment gateway is integrated
-      // TODO: Re-enable payment workflow when payment gateway is configured
-      /*
-      // Create invoice and payment record
-      try {
-        // Try PostgreSQL first
+      // Create booking in PostgreSQL (for financial records)
         try {
-          await _paymentService.initialize();
+        await _postgresBookingService.initialize();
+        final pin = await _postgresBookingService.createBooking(
+          bookingId: booking.id,
+          customerId: summary.customerId,
+          professionalId: summary.professionalId,
+          customerName: booking.customerName,
+          professionalName: booking.professionalName,
+          serviceTitle: serviceTitle,
+          serviceDescription: serviceDescription,
+          agreedPrice: agreedPrice, // Use the validated price from summary
+          currency: 'JMD',
+          scheduledStartTime: startTime, // Use the validated time from summary
+          scheduledEndTime: endTime, // Use the validated time from summary
+          serviceLocation: serviceLocation, // Use the validated location from summary
+          deliverables: summary.extractedDeliverables,
+          importantPoints: summary.extractedImportantPoints,
+          chatRoomId: summary.chatRoomId,
+          estimateId: summary.estimateId,
+          notes: null,
+          travelMode: summary.finalTravelMode,
+          customerAddress: summary.customerAddress,
+          shopAddress: summary.shopAddress,
+          travelFee: summary.travelFee,
+        );
           
-          // Create invoice first
-          final paymentWorkflowService = PaymentWorkflowService.instance;
-          await paymentWorkflowService.initialize();
-          
-          final invoice = await paymentWorkflowService.createInvoiceFromBooking(
-            bookingId: bookingId,
-            customerId: summary.customerId,
-            professionalId: summary.professionalId,
-            totalAmount: summary.extractedPrice,
-            depositPercentage: 0, // No deposit required by default
-            currency: 'JMD',
-            notes: 'Invoice created for booking: $serviceTitle',
-          );
-          
-          // Create payment record
-          await _paymentService.createPayment(
-            bookingId: bookingId,
-            customerId: summary.customerId,
-            professionalId: summary.professionalId,
-            amount: summary.extractedPrice,
-            currency: 'JMD',
-            notes: 'Payment for booking: $serviceTitle',
-          );
-          
-          print('✅ [ChatService] PostgreSQL invoice and payment record created for booking: $bookingId');
-        } catch (e) {
-          print('⚠️ [ChatService] PostgreSQL not available, using mock payments: $e');
-          await _mockPaymentService.initialize();
-          await _mockPaymentService.createPayment(
-            bookingId: bookingId,
-            customerId: summary.customerId,
-            professionalId: summary.professionalId,
-            amount: summary.extractedPrice,
-            currency: 'JMD',
-            notes: 'Payment for booking: $serviceTitle',
-          );
-          print('✅ [ChatService] Mock payment record created for booking: $bookingId');
-        }
+        // Store PIN in Firestore for customer access (unhashed, only shown once)
+        await _bookingsCollection.doc(booking.id).update({
+          'customerPin': pin,
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+        
+        print('✅ [ChatService] Booking created in PostgreSQL with PIN: ${pin.substring(0, 2)}**');
       } catch (e) {
-        print('⚠️ [ChatService] Failed to create payment record: $e');
-        // Don't fail the booking creation if payment record creation fails
+        print('⚠️ [ChatService] Failed to create booking in PostgreSQL: $e');
+        // Don't fail the booking creation if PostgreSQL fails
+        // Firestore booking is still created for real-time UI
       }
-      */
       
-      print('✅ [ChatService] Booking created (payment workflow disabled): ${booking.id}');
+      print('✅ [ChatService] Booking created: ${booking.id}');
       
       // Send booking generated message
       await _sendSystemMessage(
@@ -549,6 +574,42 @@ class ChatService {
         if (chatRoomId != null) updateData['chatRoomId'] = chatRoomId;
         
         await _bookingsCollection.doc(booking.id).update(updateData);
+      }
+
+      // Create booking in PostgreSQL (for financial records)
+      try {
+        await _postgresBookingService.initialize();
+        final pin = await _postgresBookingService.createBooking(
+          bookingId: booking.id,
+          customerId: customerId,
+          professionalId: professionalId,
+          customerName: customerName,
+          professionalName: professionalName,
+          serviceTitle: serviceTitle,
+          serviceDescription: serviceDescription,
+          agreedPrice: agreedPrice,
+          currency: 'JMD',
+          scheduledStartTime: startTime,
+          scheduledEndTime: endTime,
+          serviceLocation: location,
+          deliverables: deliverables,
+          importantPoints: importantPoints,
+          chatRoomId: chatRoomId,
+          estimateId: estimateId,
+          notes: notes,
+        );
+        
+        // Store PIN in Firestore for customer access (unhashed, only shown once)
+        await _bookingsCollection.doc(booking.id).update({
+          'customerPin': pin,
+          'updatedAt': Timestamp.fromDate(DateTime.now()),
+        });
+        
+        print('✅ [ChatService] Booking created in PostgreSQL with PIN: ${pin.substring(0, 2)}**');
+      } catch (e) {
+        print('⚠️ [ChatService] Failed to create booking in PostgreSQL: $e');
+        // Don't fail the booking creation if PostgreSQL fails
+        // Firestore booking is still created for real-time UI
       }
 
       // Schedule booking reminders

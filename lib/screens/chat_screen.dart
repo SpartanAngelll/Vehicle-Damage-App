@@ -419,11 +419,14 @@ class _ChatScreenState extends State<ChatScreen> {
           // Create the booking with confirmed details
           final confirmedSummary = confirmed;
           
+          // Pass customer and professional names from chat room
           final booking = await _chatService.createBookingFromSummary(
             summary: confirmedSummary,
             serviceTitle: confirmedSummary.rawAnalysis?['service'] ?? 'Service Request',
             serviceDescription: confirmedSummary.conversationSummary,
             location: confirmedSummary.extractedLocation ?? 'To be confirmed',
+            customerName: chatRoom.customerName,
+            professionalName: chatRoom.professionalName,
           );
 
           if (mounted) {
@@ -480,14 +483,13 @@ class _ChatScreenState extends State<ChatScreen> {
               _messages = messages;
 
               if (messages.isEmpty) {
+                final theme = Theme.of(context);
                 return Center(
                   child: Text(
                     'Start the conversation!\nDiscuss job details, schedule, and requirements.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: isWeb 
-                        ? Theme.of(context).colorScheme.onSurfaceVariant
-                        : Colors.white70,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                 );
@@ -613,9 +615,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     widget.otherUserName,
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  const Text(
+                  Text(
                     'Discuss job details',
-                    style: TextStyle(fontSize: 12, color: Colors.white70),
+                    style: TextStyle(
+                      fontSize: 12, 
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -654,25 +659,28 @@ class _ChatScreenState extends State<ChatScreen> {
     final userState = context.read<UserState>();
     final isMe = message.senderId == userState.userId;
     final isSystem = message.type == MessageType.system;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     if (isSystem) {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.blue.withOpacity(0.1),
+          color: colorScheme.primaryContainer.withOpacity(0.3),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.blue.withOpacity(0.3)),
+          border: Border.all(color: colorScheme.primary.withOpacity(0.5)),
         ),
         child: Row(
           children: [
-            const Icon(Icons.info_outline, color: Colors.blue, size: 16),
+            Icon(Icons.info_outline, color: colorScheme.primary, size: 16),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 message.content,
-                style: const TextStyle(
-                  color: Colors.blue,
+                style: TextStyle(
+                  color: colorScheme.primary,
                   fontSize: 14,
                 ),
               ),
@@ -700,7 +708,9 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isMe ? Colors.blue : Colors.grey[800],
+                color: isMe 
+                    ? colorScheme.primary 
+                    : (isDark ? colorScheme.surfaceContainerHigh : colorScheme.surfaceContainer),
                 borderRadius: BorderRadius.circular(20).copyWith(
                   bottomRight: isMe ? const Radius.circular(4) : null,
                   bottomLeft: !isMe ? const Radius.circular(4) : null,
@@ -712,8 +722,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (!isMe)
                     Text(
                       message.senderName,
-                      style: const TextStyle(
-                        color: Colors.white70,
+                      style: TextStyle(
+                        color: isMe 
+                            ? colorScheme.onPrimary 
+                            : colorScheme.onSurfaceVariant,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -721,8 +733,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(height: 2),
                   Text(
                     message.content,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: isMe 
+                          ? colorScheme.onPrimary 
+                          : colorScheme.onSurface,
                       fontSize: 16,
                     ),
                   ),
@@ -744,12 +758,16 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageInput() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[900],
+        color: colorScheme.surface,
         border: Border(
-          top: BorderSide(color: Colors.grey[700]!),
+          top: BorderSide(color: colorScheme.outlineVariant),
         ),
       ),
       child: Row(
@@ -757,14 +775,18 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: TextField(
               controller: _messageController,
+              style: TextStyle(color: colorScheme.onSurface),
               decoration: InputDecoration(
                 hintText: 'Type a message...',
+                hintStyle: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25),
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: Colors.grey[800],
+                fillColor: isDark 
+                    ? colorScheme.surfaceContainerHigh 
+                    : colorScheme.surfaceContainer,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 12,
@@ -777,8 +799,9 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(width: 12),
           FloatingActionButton.small(
             onPressed: _sendMessage,
-            backgroundColor: Colors.blue,
-            child: const Icon(Icons.send, color: Colors.white),
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            child: const Icon(Icons.send),
           ),
         ],
       ),

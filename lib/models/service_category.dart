@@ -7,6 +7,7 @@ class ServiceCategory {
   final IconData icon;
   final String colorHex;
   final bool isActive;
+  final String? imageUrl;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -17,6 +18,7 @@ class ServiceCategory {
     required this.icon,
     required this.colorHex,
     this.isActive = true,
+    this.imageUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) : 
@@ -32,6 +34,7 @@ class ServiceCategory {
       'iconName': icon.codePoint.toString(),
       'colorHex': colorHex,
       'isActive': isActive,
+      'imageUrl': imageUrl,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
     };
@@ -46,6 +49,7 @@ class ServiceCategory {
       icon: _getIconFromCodePoint(map['iconName'] ?? '0xe3c9'), // Default to build icon
       colorHex: map['colorHex'] ?? '#2196F3',
       isActive: map['isActive'] ?? true,
+      imageUrl: map['imageUrl'] as String?,
       createdAt: map['createdAt']?.toDate() ?? DateTime.now(),
       updatedAt: map['updatedAt']?.toDate() ?? DateTime.now(),
     );
@@ -78,6 +82,7 @@ class ServiceCategory {
     IconData? icon,
     String? colorHex,
     bool? isActive,
+    String? imageUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -88,6 +93,7 @@ class ServiceCategory {
       icon: icon ?? this.icon,
       colorHex: colorHex ?? this.colorHex,
       isActive: isActive ?? this.isActive,
+      imageUrl: imageUrl ?? this.imageUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );

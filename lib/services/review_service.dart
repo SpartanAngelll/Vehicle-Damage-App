@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../models/review_models.dart';
 import '../models/booking_models.dart';
 import '../models/service_professional.dart';
+import 'booking_workflow_service.dart';
 
 class ReviewService {
   static final ReviewService _instance = ReviewService._internal();
@@ -11,6 +12,7 @@ class ReviewService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
+  final BookingWorkflowService _workflowService = BookingWorkflowService();
 
   // Collections
   CollectionReference get _customerReviewsCollection => _firestore.collection('reviews');
@@ -68,8 +70,23 @@ class ReviewService {
 
       // Debug logging removed - issue was fixed
 
-      // Store the review
+      // Store the review in Firestore
       await _customerReviewsCollection.doc(reviewId).set(review.toMap());
+
+      // Also store in PostgreSQL via workflow service
+      try {
+        await _workflowService.submitCustomerReview(
+          bookingId: bookingId,
+          customerId: customerId,
+          professionalId: professionalId,
+          rating: rating,
+          reviewText: reviewText,
+        );
+        print('✅ [ReviewService] Review also saved to PostgreSQL');
+      } catch (e) {
+        print('⚠️ [ReviewService] Failed to save review to PostgreSQL: $e');
+        // Don't fail if PostgreSQL save fails - Firestore is the primary store
+      }
 
       // Update professional's rating statistics
       await _updateProfessionalRatingStats(professionalId);
@@ -133,8 +150,23 @@ class ReviewService {
         metadata: metadata,
       );
 
-      // Store the review
+      // Store the review in Firestore
       await _professionalReviewsCollection.doc(reviewId).set(review.toMap());
+
+      // Also store in PostgreSQL via workflow service
+      try {
+        await _workflowService.submitProfessionalReview(
+          bookingId: bookingId,
+          professionalId: professionalId,
+          customerId: customerId,
+          rating: rating,
+          reviewText: reviewText,
+        );
+        print('✅ [ReviewService] Review also saved to PostgreSQL');
+      } catch (e) {
+        print('⚠️ [ReviewService] Failed to save review to PostgreSQL: $e');
+        // Don't fail if PostgreSQL save fails - Firestore is the primary store
+      }
 
       print('✅ [ReviewService] Professional review submitted successfully: $reviewId');
       return review;

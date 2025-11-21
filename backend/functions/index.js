@@ -587,3 +587,192 @@ function generateEmailText(title, body, data) {
   text += '\nThis is an automated notification from Vehicle Damage App.';
   return text;
 }
+
+// Firestore trigger: Send notification when a new chat message is created
+exports.onChatMessageCreated = functions.firestore
+  .document('chat_messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    try {
+      const messageData = snap.data();
+      const messageId = context.params.messageId;
+      
+      // Skip system messages
+      if (messageData.senderId === 'system' || messageData.type === 'system') {
+        console.log('Skipping notification for system message');
+        return null;
+      }
+
+      const chatRoomId = messageData.chatRoomId;
+      const senderId = messageData.senderId;
+      const senderName = messageData.senderName || 'Someone';
+      const messageContent = messageData.content || '';
+      const messagePreview = messageContent.length > 100 
+        ? `${messageContent.substring(0, 100)}...` 
+        : messageContent;
+
+      // Get chat room to find recipient
+      const chatRoomDoc = await db.collection('chat_rooms').doc(chatRoomId).get();
+      if (!chatRoomDoc.exists) {
+        console.log('Chat room not found:', chatRoomId);
+        return null;
+      }
+
+      const chatRoomData = chatRoomDoc.data();
+      const customerId = chatRoomData.customerId;
+      const professionalId = chatRoomData.professionalId;
+
+      // Determine recipient: if sender is customer, recipient is professional, and vice versa
+      const recipientId = senderId === customerId ? professionalId : customerId;
+
+      // Don't send notification if recipient is the same as sender
+      if (!recipientId || recipientId === senderId) {
+        console.log('Skipping notification - recipient is same as sender or missing');
+        return null;
+      }
+
+      // Get recipient's FCM token(s)
+      const recipientDoc = await db.collection('users').doc(recipientId).get();
+      if (!recipientDoc.exists) {
+        console.log('[onChatMessageCreated] Recipient not found:', recipientId);
+        return null;
+      }
+
+      const recipientData = recipientDoc.data();
+      // Support both single token and array of tokens (for multiple devices)
+      let fcmTokens = [];
+      if (recipientData.fcmToken) {
+        if (Array.isArray(recipientData.fcmToken)) {
+          fcmTokens = recipientData.fcmToken;
+        } else {
+          fcmTokens = [recipientData.fcmToken];
+        }
+      }
+
+      if (fcmTokens.length === 0) {
+        console.log('[onChatMessageCreated] Recipient has no FCM token:', recipientId);
+        return null;
+      }
+
+      console.log(`[onChatMessageCreated] Found ${fcmTokens.length} FCM token(s) for recipient: ${recipientId}`);
+
+      // Prepare notification
+      const title = `New Message from ${senderName}`;
+      const body = messagePreview;
+
+      // Prepare FCM message template
+      const messageTemplate = {
+        notification: {
+          title: title,
+          body: body,
+        },
+        data: {
+          type: 'chat_message',
+          chatRoomId: chatRoomId,
+          messageId: messageId,
+          senderId: senderId,
+          senderName: senderName,
+          timestamp: Date.now().toString(),
+        },
+        webpush: {
+          notification: {
+            title: title,
+            body: body,
+            icon: '/icons/Icon-192.png',
+            badge: '/icons/Icon-192.png',
+            tag: `chat_${chatRoomId}`,
+            requireInteraction: false,
+          },
+          fcmOptions: {
+            link: `/chat?roomId=${chatRoomId}`,
+          },
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            title: title,
+            body: body,
+            priority: 'high',
+            sound: 'default',
+            channelId: 'chat_notifications',
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: title,
+                body: body,
+              },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      // Send FCM notifications to all devices
+      const sendPromises = fcmTokens.map(async (token) => {
+        try {
+          const message = {
+            ...messageTemplate,
+            token: token,
+          };
+          const response = await admin.messaging().send(message);
+          console.log(`[onChatMessageCreated] FCM notification sent to token ${token.substring(0, 20)}... Response:`, response);
+          return { success: true, token: token.substring(0, 20), response };
+        } catch (error) {
+          console.error(`[onChatMessageCreated] Failed to send to token ${token.substring(0, 20)}...:`, error);
+          // If token is invalid, we might want to remove it from the user's profile
+          if (error.code === 'messaging/invalid-registration-token' || 
+              error.code === 'messaging/registration-token-not-registered') {
+            console.log(`[onChatMessageCreated] Removing invalid token: ${token.substring(0, 20)}...`);
+            // Remove invalid token from user's profile
+            try {
+              const userData = recipientDoc.data();
+              if (Array.isArray(userData.fcmToken)) {
+                const updatedTokens = userData.fcmToken.filter(t => t !== token);
+                await db.collection('users').doc(recipientId).update({
+                  fcmToken: updatedTokens.length === 1 ? updatedTokens[0] : updatedTokens,
+                });
+              } else if (userData.fcmToken === token) {
+                await db.collection('users').doc(recipientId).update({
+                  fcmToken: admin.firestore.FieldValue.delete(),
+                });
+              }
+            } catch (updateError) {
+              console.error('[onChatMessageCreated] Failed to remove invalid token:', updateError);
+            }
+          }
+          return { success: false, token: token.substring(0, 20), error: error.message };
+        }
+      });
+
+      const results = await Promise.all(sendPromises);
+      const successCount = results.filter(r => r.success).length;
+      console.log(`[onChatMessageCreated] Sent ${successCount}/${fcmTokens.length} FCM notifications for message: ${messageId}`);
+
+      // Log notification to Firestore
+      await db.collection('notifications').add({
+        userId: recipientId,
+        title: title,
+        body: body,
+        data: {
+          type: 'chat_message',
+          chatRoomId: chatRoomId,
+          messageId: messageId,
+        },
+        priority: 'high',
+        status: 'sent',
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        fcmMessageId: response,
+        method: 'fcm',
+      });
+
+      return null;
+    } catch (error) {
+      console.error('Error sending notification for chat message:', error);
+      // Don't throw - we don't want to fail message creation if notification fails
+      return null;
+    }
+  });
