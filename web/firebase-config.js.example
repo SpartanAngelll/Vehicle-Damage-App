@@ -1,0 +1,16 @@
+// Firebase Configuration for Service Worker
+// This is an EXAMPLE file - DO NOT commit the actual firebase-config.js to git
+// Copy this file to firebase-config.js and fill in your Firebase config values
+// The actual firebase-config.js should be generated at build time or added to .gitignore
+
+// Firebase config object
+self.firebaseConfig = {
+  apiKey: 'YOUR_FIREBASE_API_KEY',
+  appId: 'YOUR_FIREBASE_APP_ID',
+  messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
+  projectId: 'YOUR_PROJECT_ID',
+  authDomain: 'YOUR_AUTH_DOMAIN',
+  storageBucket: 'YOUR_STORAGE_BUCKET',
+  measurementId: 'YOUR_MEASUREMENT_ID',
+};
+
