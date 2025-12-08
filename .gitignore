@@ -21,6 +21,7 @@ android/app/google-services.json
 local.properties
 GOOGLE_MAPS_SECURITY_FIX.md
 SECURE_API_KEY_SETUP.md
+SECRETS_AUDIT_REPORT.md
 lib/firebase_options.dart
 lib/firebase_options.template.dart
 

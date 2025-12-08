@@ -16,12 +16,34 @@ class PostgresBookingService {
   final PostgresPaymentService _paymentService = PostgresPaymentService.instance;
   
   // Database configuration
+  // Defaults to Supabase configuration (can be overridden with environment variables)
   int get _port => int.tryParse(Platform.environment['POSTGRES_PORT'] ?? '5432') ?? 5432;
-  String get _database => Platform.environment['POSTGRES_DB'] ?? 'vehicle_damage_payments';
+  String get _database => Platform.environment['POSTGRES_DB'] ?? 'postgres'; // Supabase uses 'postgres' as default database
   String get _username => Platform.environment['POSTGRES_USER'] ?? 'postgres';
-  String get _password => Platform.environment['POSTGRES_PASSWORD'] ?? '#!Startpos12';
+  String get _password {
+    // Check environment variable first
+    final envPassword = Platform.environment['POSTGRES_PASSWORD'];
+    if (envPassword != null && envPassword.isNotEmpty) {
+      return envPassword;
+    }
+    // ⚠️ SECURITY: No default password - must be set via environment variable
+    // For production, always use environment variables or secure storage
+    throw Exception('POSTGRES_PASSWORD environment variable is required. Set it in .env file or environment.');
+  }
   
   String get _host {
+    // Check for explicit host in environment variable first (for Supabase)
+    final envHost = Platform.environment['POSTGRES_HOST'];
+    if (envHost != null && envHost.isNotEmpty) {
+      return envHost;
+    }
+    
+    // Default to Supabase for cloud deployment
+    // Note: POSTGRES_HOST environment variable should be set for production
+    // For local development, set POSTGRES_HOST to your local IP or 'localhost'
+    throw Exception('POSTGRES_HOST environment variable is required. Set it in .env file or environment.');
+    
+    // Local PostgreSQL fallback (for development)
     if (kIsWeb) {
       return 'localhost';
     } else if (Platform.isAndroid) {
