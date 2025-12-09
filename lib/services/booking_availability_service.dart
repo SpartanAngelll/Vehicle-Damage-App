@@ -46,7 +46,7 @@ class BookingAvailabilityService {
           startTime: schedule['startTime'],
           endTime: schedule['endTime'],
           isAvailable: schedule['isAvailable'] ?? true,
-          slotDurationMinutes: schedule['slotDurationMinutes'] ?? 60,
+          slotDurationMinutes: schedule['slotDurationMinutes'] ?? 10,
           breakBetweenSlotsMinutes: schedule['breakBetweenSlotsMinutes'] ?? 0,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),

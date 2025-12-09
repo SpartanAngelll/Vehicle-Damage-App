@@ -69,7 +69,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': true,
           'startTime': const TimeOfDay(hour: 9, minute: 0),
           'endTime': const TimeOfDay(hour: 17, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
         {
@@ -77,7 +77,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': true,
           'startTime': const TimeOfDay(hour: 9, minute: 0),
           'endTime': const TimeOfDay(hour: 17, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
         {
@@ -85,7 +85,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': true,
           'startTime': const TimeOfDay(hour: 9, minute: 0),
           'endTime': const TimeOfDay(hour: 17, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
         {
@@ -93,7 +93,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': true,
           'startTime': const TimeOfDay(hour: 9, minute: 0),
           'endTime': const TimeOfDay(hour: 17, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
         {
@@ -101,7 +101,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': true,
           'startTime': const TimeOfDay(hour: 9, minute: 0),
           'endTime': const TimeOfDay(hour: 17, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
         {
@@ -109,7 +109,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': true,
           'startTime': const TimeOfDay(hour: 10, minute: 0),
           'endTime': const TimeOfDay(hour: 15, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
         {
@@ -117,7 +117,7 @@ class _BookingIntegrationExampleState extends State<BookingIntegrationExample> {
           'isAvailable': false,
           'startTime': const TimeOfDay(hour: 10, minute: 0),
           'endTime': const TimeOfDay(hour: 15, minute: 0),
-          'slotDurationMinutes': 60,
+          'slotDurationMinutes': 10,
           'breakBetweenSlotsMinutes': 0,
         },
       ];

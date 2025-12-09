@@ -118,7 +118,7 @@ class ProfessionalAvailability {
     required this.endTime,
     this.isAvailable = true,
     List<DateTime>? blockedDates,
-    this.slotDurationMinutes = 60,
+    this.slotDurationMinutes = 10,
     this.breakBetweenSlotsMinutes = 0,
     required this.createdAt,
     required this.updatedAt,
@@ -142,7 +142,7 @@ class ProfessionalAvailability {
       blockedDates: (map['blockedDates'] as List<dynamic>?)
           ?.map((e) => (e as Timestamp).toDate())
           .toList() ?? [],
-      slotDurationMinutes: map['slotDurationMinutes'] ?? 60,
+      slotDurationMinutes: map['slotDurationMinutes'] ?? 10,
       breakBetweenSlotsMinutes: map['breakBetweenSlotsMinutes'] ?? 0,
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       updatedAt: (map['updatedAt'] as Timestamp).toDate(),

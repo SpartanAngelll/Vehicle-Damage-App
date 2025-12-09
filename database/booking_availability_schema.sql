@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS professional_availability (
     end_time TIME NOT NULL,
     is_available BOOLEAN DEFAULT TRUE,
     blocked_dates DATE[],
-    slot_duration_minutes INTEGER DEFAULT 60,
+    slot_duration_minutes INTEGER DEFAULT 10,
     break_between_slots_minutes INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

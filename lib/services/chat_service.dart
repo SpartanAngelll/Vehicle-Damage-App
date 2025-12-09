@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 import '../models/chat_models.dart';
 import '../models/booking_models.dart';
@@ -6,6 +7,7 @@ import '../models/payment_models.dart';
 import '../models/booking_availability_models.dart';
 import 'postgres_payment_service.dart';
 import 'postgres_booking_service.dart';
+import 'supabase_booking_service.dart';
 import 'mock_payment_service.dart';
 import 'payment_workflow_service.dart';
 import 'comprehensive_notification_service.dart';
@@ -20,7 +22,7 @@ class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = const Uuid();
   final PostgresPaymentService _paymentService = PostgresPaymentService.instance;
-  final PostgresBookingService _postgresBookingService = PostgresBookingService.instance;
+  final SupabaseBookingService _supabaseBookingService = SupabaseBookingService.instance;
   final MockPaymentService _mockPaymentService = MockPaymentService.instance;
   final ComprehensiveNotificationService _notificationService = ComprehensiveNotificationService();
   final BookingReminderScheduler _reminderScheduler = BookingReminderScheduler();
@@ -410,12 +412,30 @@ class ChatService {
         'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
       
-      // Create booking in PostgreSQL (for financial records)
-        try {
-        await _postgresBookingService.initialize();
-        final pin = await _postgresBookingService.createBooking(
+      // Create booking in Supabase (for financial records)
+      // IMPORTANT: Verify customerId matches current Firebase UID to prevent RLS violations
+      try {
+        // Get current Firebase Auth UID to ensure it matches
+        final firebaseAuth = FirebaseAuth.instance;
+        final currentFirebaseUid = firebaseAuth.currentUser?.uid;
+        
+        if (currentFirebaseUid == null) {
+          throw Exception('User not authenticated - cannot create booking');
+        }
+        
+        // Use current Firebase UID instead of potentially stale summary.customerId
+        final verifiedCustomerId = currentFirebaseUid;
+        
+        if (summary.customerId != verifiedCustomerId) {
+          print('⚠️ [ChatService] Customer ID mismatch detected:');
+          print('   Summary customerId: ${summary.customerId}');
+          print('   Current Firebase UID: $verifiedCustomerId');
+          print('   Using current Firebase UID to prevent RLS violation');
+        }
+        
+        final pin = await _supabaseBookingService.createBooking(
           bookingId: booking.id,
-          customerId: summary.customerId,
+          customerId: verifiedCustomerId,
           professionalId: summary.professionalId,
           customerName: booking.customerName,
           professionalName: booking.professionalName,
@@ -443,10 +463,10 @@ class ChatService {
           'updatedAt': Timestamp.fromDate(DateTime.now()),
         });
         
-        print('✅ [ChatService] Booking created in PostgreSQL with PIN: ${pin.substring(0, 2)}**');
+        print('✅ [ChatService] Booking created in Supabase with PIN: ${pin.substring(0, 2)}**');
       } catch (e) {
-        print('⚠️ [ChatService] Failed to create booking in PostgreSQL: $e');
-        // Don't fail the booking creation if PostgreSQL fails
+        print('⚠️ [ChatService] Failed to create booking in Supabase: $e');
+        // Don't fail the booking creation if Supabase fails
         // Firestore booking is still created for real-time UI
       }
       
@@ -576,10 +596,9 @@ class ChatService {
         await _bookingsCollection.doc(booking.id).update(updateData);
       }
 
-      // Create booking in PostgreSQL (for financial records)
+      // Create booking in Supabase (for financial records)
       try {
-        await _postgresBookingService.initialize();
-        final pin = await _postgresBookingService.createBooking(
+        final pin = await _supabaseBookingService.createBooking(
           bookingId: booking.id,
           customerId: customerId,
           professionalId: professionalId,
@@ -605,10 +624,10 @@ class ChatService {
           'updatedAt': Timestamp.fromDate(DateTime.now()),
         });
         
-        print('✅ [ChatService] Booking created in PostgreSQL with PIN: ${pin.substring(0, 2)}**');
+        print('✅ [ChatService] Booking created in Supabase with PIN: ${pin.substring(0, 2)}**');
       } catch (e) {
-        print('⚠️ [ChatService] Failed to create booking in PostgreSQL: $e');
-        // Don't fail the booking creation if PostgreSQL fails
+        print('⚠️ [ChatService] Failed to create booking in Supabase: $e');
+        // Don't fail the booking creation if Supabase fails
         // Firestore booking is still created for real-time UI
       }
 

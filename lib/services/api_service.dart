@@ -24,11 +24,44 @@ class ApiService {
 
   static String _getBaseUrl() {
     // In production, this would be your actual backend URL
-    // For development, you can use localhost or your development server
-    if (kDebugMode) {
-      return 'http://localhost:3000/api'; // Development server
-    } else {
+    if (!kDebugMode) {
       return 'https://your-backend-api.com/api'; // Production server
+    }
+    
+    // For development, handle different platforms
+    if (kIsWeb) {
+      return 'http://localhost:3000/api'; // Web development
+    } else if (Platform.isAndroid) {
+      // For Android: use 10.0.2.2 for emulator, actual IP for physical device
+      final host = _isEmulator() ? '10.0.2.2' : '192.168.0.53';
+      return 'http://$host:3000/api';
+    } else if (Platform.isIOS) {
+      // For iOS: use localhost for simulator, actual IP for physical device
+      final host = _isSimulator() ? 'localhost' : '192.168.0.53';
+      return 'http://$host:3000/api';
+    } else {
+      return 'http://localhost:3000/api'; // Desktop development
+    }
+  }
+
+  static bool _isEmulator() {
+    if (!Platform.isAndroid) return false;
+    try {
+      final androidInfo = Platform.environment;
+      return androidInfo.containsKey('ANDROID_EMULATOR') || 
+             androidInfo['ANDROID_EMULATOR'] == '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static bool _isSimulator() {
+    if (!Platform.isIOS) return false;
+    try {
+      return Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') ||
+             Platform.environment.containsKey('SIMULATOR_ROOT');
+    } catch (e) {
+      return false;
     }
   }
 

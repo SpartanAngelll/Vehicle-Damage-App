@@ -15,7 +15,13 @@ Future<void> main() async {
         port: 5432,
         database: 'vehicle_damage_payments',
         username: 'postgres',
-        password: '#!Startpos12',
+        password: (() {
+          final password = Platform.environment['POSTGRES_PASSWORD'];
+          if (password == null || password.isEmpty) {
+            throw Exception('POSTGRES_PASSWORD environment variable is required');
+          }
+          return password;
+        })(),
       ),
       settings: ConnectionSettings(sslMode: SslMode.disable),
     );

@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/api_key_service.dart';
+
+// Conditional import for web map helper
+import 'web_map_helper.dart' if (dart.library.io) 'web_map_helper_stub.dart';
 
 class EmbeddedMapWidget extends StatefulWidget {
   final double? latitude;
@@ -97,6 +101,7 @@ class _EmbeddedMapWidgetState extends State<EmbeddedMapWidget> {
     final lat = widget.latitude ?? 40.7128;
     final lng = widget.longitude ?? -74.0060;
     final address = widget.address ?? 'Location';
+    final apiKey = ApiKeyService.googleMapsApiKey;
 
     return Container(
       height: widget.height,
@@ -118,50 +123,87 @@ class _EmbeddedMapWidgetState extends State<EmbeddedMapWidget> {
         borderRadius: BorderRadius.circular(12),
         child: Stack(
           children: [
-            // Web map placeholder
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.map,
-                    size: 48,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Map View',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
+            // Google Maps iframe embed
+            if (apiKey != null && apiKey.isNotEmpty && hasLocation)
+              _buildGoogleMapsIframe(lat, lng, apiKey)
+            else if (!hasLocation)
+              // Show message if no location is set
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.location_off,
+                      size: 48,
+                      color: Colors.grey[400],
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    address,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[500],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _openInGoogleMaps(lat, lng, address),
-                    icon: const Icon(Icons.open_in_new, size: 16),
-                    label: const Text('Open in Google Maps'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
+                    const SizedBox(height: 8),
+                    Text(
+                      'No location set',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[600],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              )
+            else
+              // Fallback placeholder if API key is missing or no location
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.map,
+                      size: 48,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Map View',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      address,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[500],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (apiKey == null || apiKey.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'API key not configured',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red[400],
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _openInGoogleMaps(lat, lng, address),
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: const Text('Open in Google Maps'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
             // Tap overlay
             if (widget.onTap != null)
               Positioned.fill(
@@ -175,6 +217,16 @@ class _EmbeddedMapWidgetState extends State<EmbeddedMapWidget> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildGoogleMapsIframe(double lat, double lng, String apiKey) {
+    // Use the web-specific helper function (only works on web)
+    return buildGoogleMapsIframe(
+      lat: lat,
+      lng: lng,
+      apiKey: apiKey,
+      height: widget.height,
     );
   }
 

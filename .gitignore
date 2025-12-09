@@ -18,12 +18,22 @@ android/app/google-services.json
 .env.local
 .env.production
 .env.staging
+*.env
+!env.example
 local.properties
 GOOGLE_MAPS_SECURITY_FIX.md
 SECURE_API_KEY_SETUP.md
 SECRETS_AUDIT_REPORT.md
 lib/firebase_options.dart
 lib/firebase_options.template.dart
+
+# Private keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*firebase_key*
+*private_key*
 
 # Database Configuration Files (contain passwords)
 configure_postgres.ps1

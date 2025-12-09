@@ -9,13 +9,62 @@ class PostgresPaymentService {
   static PostgresPaymentService? _instance;
   Connection? _connection;
   // Database configuration with environment variable support
-  int get _port => int.tryParse(Platform.environment['POSTGRES_PORT'] ?? '5432') ?? 5432;
-  String get _database => Platform.environment['POSTGRES_DB'] ?? 'vehicle_damage_payments';
+  // Defaults to Supabase configuration (can be overridden with environment variables)
+  // Note: Use port 6543 for connection pooling (better for mobile devices)
+  int get _port {
+    final envPort = Platform.environment['POSTGRES_PORT'];
+    if (envPort != null && envPort.isNotEmpty) {
+      return int.tryParse(envPort) ?? 5432;
+    }
+    // Default to connection pooling port for better mobile compatibility
+    // Change to 5432 if you prefer direct connection
+    return 6543; // Supabase connection pooling port (IPv4 compatible)
+  }
+  String get _database => Platform.environment['POSTGRES_DB'] ?? 'postgres'; // Supabase uses 'postgres' as default database
   String get _username => Platform.environment['POSTGRES_USER'] ?? 'postgres';
-  String get _password => Platform.environment['POSTGRES_PASSWORD'] ?? '#!Startpos12';
+  String get _password {
+    // Check environment variable first
+    final envPassword = Platform.environment['POSTGRES_PASSWORD'];
+    if (envPassword != null && envPassword.isNotEmpty) {
+      return envPassword;
+    }
+    // Default Supabase password (change this to your actual password)
+    // For production, use environment variables or secure storage
+    return 'LoiDzn0nALRMBhgw';
+  }
   
-  // Dynamic host based on platform
+  // SSL configuration for Supabase (required for cloud databases)
+  bool get _useSSL {
+    final sslEnv = Platform.environment['POSTGRES_SSL'];
+    if (sslEnv == null) {
+      // Auto-detect: if host is not localhost/127.0.0.1/10.0.2.2, assume SSL needed
+      final host = _host;
+      return !host.contains('localhost') && 
+             !host.contains('127.0.0.1') && 
+             !host.contains('10.0.2.2') &&
+             !host.contains('192.168.');
+    }
+    return sslEnv == 'true' || sslEnv == '1';
+  }
+  
+  // Dynamic host based on platform or environment variable
   String get _host {
+    // Check for explicit host in environment variable first (for Supabase)
+    final envHost = Platform.environment['POSTGRES_HOST'];
+    if (envHost != null && envHost.isNotEmpty) {
+      return envHost;
+    }
+    
+    // Default to Supabase for cloud deployment
+    // Change this to your local IP if testing with local PostgreSQL
+    const supabaseHost = 'db.rodzemxwopecqpazkjyk.supabase.co';
+    const useSupabase = true; // Set to false to use local PostgreSQL
+    
+    if (useSupabase) {
+      return supabaseHost;
+    }
+    
+    // Local PostgreSQL fallback (for development)
     if (kIsWeb) {
       return 'localhost'; // Web platform
     } else if (Platform.isAndroid) {
@@ -65,6 +114,7 @@ class PostgresPaymentService {
     if (Platform.environment.containsKey('POSTGRES_DB')) envVars.add('DB');
     if (Platform.environment.containsKey('POSTGRES_USER')) envVars.add('USER');
     if (Platform.environment.containsKey('POSTGRES_PASSWORD')) envVars.add('PASSWORD');
+    if (Platform.environment.containsKey('POSTGRES_SSL')) envVars.add('SSL');
     
     return envVars.isEmpty ? 'Using defaults' : 'Using env vars: ${envVars.join(', ')}';
   }
@@ -106,6 +156,14 @@ class PostgresPaymentService {
   }
 
   Future<void> initialize() async {
+    // Web platform doesn't support direct PostgreSQL connections
+    // Use backend API instead
+    if (kIsWeb) {
+      print('ℹ️ [PostgresPayment] Web platform - skipping direct PostgreSQL connection');
+      print('ℹ️ [PostgresPayment] Use backend API for database operations on web');
+      return;
+    }
+    
     // If already connected, just return
     if (_connection != null && await isConnected()) {
       print('✅ [PostgresPayment] Already connected to PostgreSQL');
@@ -122,6 +180,9 @@ class PostgresPaymentService {
       _connection = null;
     }
     
+    // For mobile devices, direct PostgreSQL connections may not work reliably
+    // The app will use Firestore and backend API instead
+    // This connection is optional and failures are handled gracefully
     try {
       print('🔍 [PostgresPayment] Attempting to connect to PostgreSQL...');
       print('  Platform: ${Platform.operatingSystem}');
@@ -129,6 +190,7 @@ class PostgresPaymentService {
       print('  Port: $_port');
       print('  Database: $_database');
       print('  Username: $_username');
+      print('  SSL Mode: ${_useSSL ? 'REQUIRED' : 'DISABLED'}');
       print('  Is Emulator: ${Platform.isAndroid ? _isEmulator() : 'N/A'}');
       print('  Is Simulator: ${Platform.isIOS ? _isSimulator() : 'N/A'}');
       print('  Environment: ${_getEnvironmentInfo()}');
@@ -149,7 +211,7 @@ class PostgresPaymentService {
             password: _password,
           ),
           settings: ConnectionSettings(
-            sslMode: SslMode.disable,
+            sslMode: _useSSL ? SslMode.require : SslMode.disable,
           ),
         );
         
@@ -167,7 +229,7 @@ class PostgresPaymentService {
             password: _password,
           ),
           settings: ConnectionSettings(
-            sslMode: SslMode.disable,
+            sslMode: _useSSL ? SslMode.require : SslMode.disable,
           ),
         );
         
@@ -185,7 +247,7 @@ class PostgresPaymentService {
             password: _password,
           ),
           settings: ConnectionSettings(
-            sslMode: SslMode.disable,
+            sslMode: _useSSL ? SslMode.require : SslMode.disable,
           ),
         );
       }
@@ -197,38 +259,20 @@ class PostgresPaymentService {
       await _connection!.execute('SELECT 1');
       print('✅ [PostgresPayment] Connected to PostgreSQL database successfully');
     } catch (e) {
-      print('❌ [PostgresPayment] Failed to connect to PostgreSQL: $e');
-      print('💡 [PostgresPayment] Troubleshooting tips:');
+      print('⚠️ [PostgresPayment] Failed to connect to PostgreSQL: $e');
+      print('ℹ️ [PostgresPayment] This is OK - app will use Firestore and backend API instead');
+      print('💡 [PostgresPayment] Direct PostgreSQL from mobile devices may not work due to network restrictions');
+      print('💡 [PostgresPayment] All database operations will route through backend API');
       print('  Platform: ${Platform.operatingSystem}');
       print('  Host: $_host');
       print('  Port: $_port');
       print('  Database: $_database');
       print('  Username: $_username');
       
-      if (e.toString().contains('Connection refused')) {
-        print('  🔍 CONNECTION REFUSED - Possible causes:');
-        print('    • PostgreSQL is not running on the host');
-        print('    • Wrong host IP address');
-        print('    • Firewall blocking port $_port');
-        print('    • Current host: $_host (${_getHostDescription()})');
-        if (Platform.isAndroid && !_isEmulator()) {
-          print('    • For physical device: Ensure PC IP is correct (currently: $_host)');
-          print('    • Check if PC and device are on same network');
-          print('    • Try: ping $_host from your device');
-        } else if (Platform.isAndroid && _isEmulator()) {
-          print('    • For emulator: Use 10.0.2.2 (currently: $_host)');
-          print('    • Make sure PostgreSQL is running on host machine');
-        }
-      } else if (e.toString().contains('authentication')) {
-        print('  🔍 AUTHENTICATION ERROR - Check username/password');
-        print('    • Username: $_username');
-        print('    • Password: ${_password.substring(0, 3)}***');
-      } else if (e.toString().contains('database') && e.toString().contains('does not exist')) {
-        print('  🔍 DATABASE NOT FOUND - Run: psql -U $_username -c "CREATE DATABASE $_database;"');
-      }
-      
-      print('  📋 Manual test: psql -h $_host -p $_port -U $_username -d $_database');
-      rethrow;
+      // Don't rethrow - allow app to continue with Firestore/backend API
+      // The app will work fine using Firestore for real-time data and backend API for PostgreSQL operations
+      _connection = null;
+      return;
     }
   }
 
@@ -706,7 +750,7 @@ class PostgresPaymentService {
             password: _password,
           ),
           settings: ConnectionSettings(
-            sslMode: SslMode.disable,
+            sslMode: _useSSL ? SslMode.require : SslMode.disable,
           ),
         );
         

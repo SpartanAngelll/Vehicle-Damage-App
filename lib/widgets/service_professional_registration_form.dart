@@ -1016,18 +1016,22 @@ class _ServiceProfessionalRegistrationFormState extends State<ServiceProfessiona
   }
 
   bool _canSubmit() {
-    final canSubmit = _selectedCategoryIds.isNotEmpty &&
-           _fullNameController.text.isNotEmpty &&
-           _phoneController.text.isNotEmpty &&
-           _bioController.text.isNotEmpty &&
-           _yearsExperienceController.text.isNotEmpty;
+    // Check basic requirements
+    final hasCategories = _selectedCategoryIds.isNotEmpty;
+    final hasFullName = _fullNameController.text.trim().isNotEmpty && _fullNameController.text.trim().length >= 2;
+    final hasPhone = _phoneController.text.trim().isNotEmpty;
+    final hasBio = _bioController.text.trim().isNotEmpty && _bioController.text.trim().length >= 20;
+    final hasYears = _yearsExperienceController.text.trim().isNotEmpty && 
+                     int.tryParse(_yearsExperienceController.text.trim()) != null;
+    
+    final canSubmit = hasCategories && hasFullName && hasPhone && hasBio && hasYears;
     
     print('🔍 [RegistrationForm] Form validation check:');
-    print('  - Categories selected: ${_selectedCategoryIds.isNotEmpty} (${_selectedCategoryIds.length} categories)');
-    print('  - Full name: ${_fullNameController.text.isNotEmpty} ("${_fullNameController.text}")');
-    print('  - Phone: ${_phoneController.text.isNotEmpty} ("${_phoneController.text}")');
-    print('  - Bio: ${_bioController.text.isNotEmpty} ("${_bioController.text}")');
-    print('  - Years experience: ${_yearsExperienceController.text.isNotEmpty} ("${_yearsExperienceController.text}")');
+    print('  - Categories selected: $hasCategories (${_selectedCategoryIds.length} categories)');
+    print('  - Full name: $hasFullName (length: ${_fullNameController.text.trim().length}, required: >= 2) ("${_fullNameController.text}")');
+    print('  - Phone: $hasPhone ("${_phoneController.text}")');
+    print('  - Bio: $hasBio (length: ${_bioController.text.trim().length}, required: >= 20) ("${_bioController.text}")');
+    print('  - Years experience: $hasYears ("${_yearsExperienceController.text}")');
     print('  - Can submit: $canSubmit');
     
     return canSubmit;
@@ -1038,6 +1042,20 @@ class _ServiceProfessionalRegistrationFormState extends State<ServiceProfessiona
     
     if (!_formKey.currentState!.validate()) {
       print('❌ [RegistrationForm] Form validation failed');
+      // Show error message to user
+      setState(() {
+        _errorMessage = 'Please fix the validation errors above. Check that your name is at least 2 characters and bio is at least 20 characters.';
+      });
+      // Scroll to first error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Please fix the form errors. Name must be at least 2 characters and bio must be at least 20 characters.'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
       return;
     }
     

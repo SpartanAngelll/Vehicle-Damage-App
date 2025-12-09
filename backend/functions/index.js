@@ -1,11 +1,33 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const axios = require('axios');
+const { createClient } = require('@supabase/supabase-js');
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
 
 const db = admin.firestore();
+
+// Supabase configuration
+const SUPABASE_URL = functions.config().supabase?.url || process.env.SUPABASE_URL;
+if (!SUPABASE_URL) {
+  throw new Error('SUPABASE_URL must be configured in Firebase Functions config or environment variables');
+}
+const SUPABASE_SERVICE_ROLE_KEY = functions.config().supabase?.service_role_key || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Initialize Supabase client with service role key for admin operations
+let supabaseClient = null;
+if (SUPABASE_SERVICE_ROLE_KEY) {
+  supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
+  console.log('✅ Supabase client initialized for Firebase Functions');
+} else {
+  console.warn('⚠️ Supabase service role key not configured. Supabase sync functions will be disabled.');
+}
 
 // Email service configuration
 const SENDGRID_API_KEY = functions.config().sendgrid?.api_key || process.env.SENDGRID_API_KEY;
@@ -773,6 +795,294 @@ exports.onChatMessageCreated = functions.firestore
     } catch (error) {
       console.error('Error sending notification for chat message:', error);
       // Don't throw - we don't want to fail message creation if notification fails
+      return null;
+    }
+  });
+
+// ==============================================
+// SUPABASE SYNC FUNCTIONS
+// ==============================================
+
+// Helper function to get user ID from Supabase by Firebase UID
+async function getSupabaseUserIdByFirebaseUid(firebaseUid) {
+  if (!supabaseClient) {
+    console.warn('[Supabase Sync] Supabase client not initialized');
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('users')
+      .select('id')
+      .eq('firebase_uid', firebaseUid)
+      .single();
+
+    if (error) {
+      console.error('[Supabase Sync] Error getting user by Firebase UID:', error);
+      return null;
+    }
+
+    return data?.id || null;
+  } catch (error) {
+    console.error('[Supabase Sync] Exception getting user by Firebase UID:', error);
+    return null;
+  }
+}
+
+// Sync new user to Supabase when created in Firebase Auth
+exports.onUserCreate = functions.auth.user().onCreate(async (user) => {
+  if (!supabaseClient) {
+    console.warn('[onUserCreate] Supabase client not initialized, skipping sync');
+    return null;
+  }
+
+  try {
+    console.log(`[onUserCreate] Syncing user to Supabase: ${user.uid}`);
+
+    // Check if user already exists in Supabase
+    const { data: existingUser } = await supabaseClient
+      .from('users')
+      .select('id')
+      .eq('firebase_uid', user.uid)
+      .single();
+
+    if (existingUser) {
+      console.log(`[onUserCreate] User already exists in Supabase: ${user.uid}`);
+      return null;
+    }
+
+    // Get user data from Firestore if available
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    // Insert user into Supabase
+    const { data, error } = await supabaseClient
+      .from('users')
+      .insert({
+        firebase_uid: user.uid,
+        email: user.email || '',
+        full_name: user.displayName || userData.fullName || userData.name || '',
+        display_name: user.displayName || userData.displayName || '',
+        profile_photo_url: user.photoURL || userData.profilePhotoUrl || null,
+        role: userData.role || 'owner',
+        phone_number: user.phoneNumber || userData.phone || null,
+        is_verified: user.emailVerified || false,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: userData.metadata || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[onUserCreate] Error syncing user to Supabase:', error);
+      throw error;
+    }
+
+    console.log(`[onUserCreate] ✅ User synced to Supabase: ${user.uid} -> ${data.id}`);
+    return null;
+  } catch (error) {
+    console.error('[onUserCreate] Failed to sync user to Supabase:', error);
+    // Don't throw - we don't want to fail user creation if sync fails
+    return null;
+  }
+});
+
+// Sync chat room to Supabase when created in Firestore
+exports.onChatRoomCreated = functions.firestore
+  .document('chatRooms/{roomId}')
+  .onCreate(async (snap, context) => {
+    if (!supabaseClient) {
+      console.warn('[onChatRoomCreated] Supabase client not initialized, skipping sync');
+      return null;
+    }
+
+    try {
+      const roomData = snap.data();
+      const roomId = context.params.roomId;
+
+      console.log(`[onChatRoomCreated] Syncing chat room to Supabase: ${roomId}`);
+
+      // Get Supabase user IDs from Firebase UIDs
+      const customerSupabaseId = await getSupabaseUserIdByFirebaseUid(roomData.customerId);
+      const professionalSupabaseId = await getSupabaseUserIdByFirebaseUid(roomData.professionalId);
+
+      if (!customerSupabaseId || !professionalSupabaseId) {
+        console.warn(`[onChatRoomCreated] Could not find Supabase user IDs for room ${roomId}`);
+        return null;
+      }
+
+      // Insert chat room into Supabase
+      // Note: chat_rooms.id is UUID, but we store Firestore ID in metadata
+      const { data, error } = await supabaseClient
+        .from('chat_rooms')
+        .insert({
+          booking_id: roomData.bookingId || null,
+          customer_id: customerSupabaseId,
+          professional_id: professionalSupabaseId,
+          last_message_at: roomData.lastMessageAt?.toDate?.()?.toISOString() || null,
+          last_message_text: roomData.lastMessage || null,
+          is_active: true,
+          created_at: roomData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updated_at: roomData.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          metadata: {
+            firestore_room_id: roomId,
+            customer_name: roomData.customerName,
+            professional_name: roomData.professionalName,
+          },
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[onChatRoomCreated] Error syncing chat room to Supabase:', error);
+        throw error;
+      }
+
+      console.log(`[onChatRoomCreated] ✅ Chat room synced to Supabase: ${roomId}`);
+      return null;
+    } catch (error) {
+      console.error('[onChatRoomCreated] Failed to sync chat room to Supabase:', error);
+      return null;
+    }
+  });
+
+// Sync chat message to Supabase (for chatRooms/{roomId}/messages/{messageId} subcollection)
+exports.onChatMessageCreatedSubcollection = functions.firestore
+  .document('chatRooms/{roomId}/messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    if (!supabaseClient) {
+      console.warn('[onChatMessageCreatedSubcollection] Supabase client not initialized, skipping sync');
+      return null;
+    }
+
+    try {
+      const messageData = snap.data();
+      const messageId = context.params.messageId;
+      const roomId = context.params.roomId;
+
+      console.log(`[onChatMessageCreatedSubcollection] Syncing message to Supabase: ${messageId} in room ${roomId}`);
+
+      // Get chat room from Supabase using Firestore room ID in metadata
+      const { data: chatRooms } = await supabaseClient
+        .from('chat_rooms')
+        .select('id')
+        .eq('metadata->>firestore_room_id', roomId)
+        .limit(1);
+      
+      const chatRoom = chatRooms && chatRooms.length > 0 ? chatRooms[0] : null;
+
+      if (!chatRoom) {
+        console.warn(`[onChatMessageCreatedSubcollection] Chat room not found in Supabase: ${roomId}`);
+        return null;
+      }
+
+      // Get sender's Supabase user ID
+      const senderSupabaseId = await getSupabaseUserIdByFirebaseUid(messageData.senderId);
+      if (!senderSupabaseId) {
+        console.warn(`[onChatMessageCreatedSubcollection] Could not find Supabase user ID for sender: ${messageData.senderId}`);
+        return null;
+      }
+
+      // Insert message into Supabase
+      // Note: chat_messages.id is UUID, but we store Firestore ID in metadata
+      const { data, error } = await supabaseClient
+        .from('chat_messages')
+        .insert({
+          chat_room_id: chatRoom.id,
+          sender_id: senderSupabaseId,
+          message_text: messageData.text || messageData.content || '',
+          message_type: messageData.type || 'text',
+          media_url: messageData.imageUrl || null,
+          is_read: messageData.read || false,
+          created_at: messageData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          metadata: {
+            firestore_message_id: messageId,
+            sender_name: messageData.senderName,
+          },
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[onChatMessageCreatedSubcollection] Error syncing message to Supabase:', error);
+        throw error;
+      }
+
+      console.log(`[onChatMessageCreatedSubcollection] ✅ Message synced to Supabase: ${messageId}`);
+      return null;
+    } catch (error) {
+      console.error('[onChatMessageCreatedSubcollection] Failed to sync message to Supabase:', error);
+      return null;
+    }
+  });
+
+// Sync chat message to Supabase (for chat_messages/{messageId} top-level collection)
+exports.onChatMessageCreatedTopLevel = functions.firestore
+  .document('chat_messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    if (!supabaseClient) {
+      console.warn('[onChatMessageCreatedTopLevel] Supabase client not initialized, skipping sync');
+      return null;
+    }
+
+    try {
+      const messageData = snap.data();
+      const messageId = context.params.messageId;
+
+      console.log(`[onChatMessageCreatedTopLevel] Syncing message to Supabase: ${messageId}`);
+
+      // Get chat room from Supabase using Firestore chatRoomId in metadata
+      const { data: chatRooms } = await supabaseClient
+        .from('chat_rooms')
+        .select('id')
+        .eq('metadata->>firestore_room_id', messageData.chatRoomId)
+        .limit(1);
+      
+      const chatRoom = chatRooms && chatRooms.length > 0 ? chatRooms[0] : null;
+
+      if (!chatRoom) {
+        console.warn(`[onChatMessageCreatedTopLevel] Chat room not found in Supabase: ${messageData.chatRoomId}`);
+        return null;
+      }
+
+      // Get sender's Supabase user ID
+      const senderSupabaseId = await getSupabaseUserIdByFirebaseUid(messageData.senderId);
+      if (!senderSupabaseId) {
+        console.warn(`[onChatMessageCreatedTopLevel] Could not find Supabase user ID for sender: ${messageData.senderId}`);
+        return null;
+      }
+
+      // Insert message into Supabase
+      // Note: chat_messages.id is UUID, but we store Firestore ID in metadata
+      const { data, error } = await supabaseClient
+        .from('chat_messages')
+        .insert({
+          chat_room_id: chatRoom.id,
+          sender_id: senderSupabaseId,
+          message_text: messageData.content || messageData.text || '',
+          message_type: messageData.type || 'text',
+          media_url: messageData.imageUrl || null,
+          is_read: false,
+          created_at: messageData.timestamp?.toDate?.()?.toISOString() || new Date().toISOString(),
+          metadata: {
+            firestore_message_id: messageId,
+            sender_name: messageData.senderName,
+          },
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[onChatMessageCreatedTopLevel] Error syncing message to Supabase:', error);
+        throw error;
+      }
+
+      console.log(`[onChatMessageCreatedTopLevel] ✅ Message synced to Supabase: ${messageId}`);
+      return null;
+    } catch (error) {
+      console.error('[onChatMessageCreatedTopLevel] Failed to sync message to Supabase:', error);
       return null;
     }
   });

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'models/models.dart';
 import 'screens/screens.dart';
@@ -20,12 +21,28 @@ import 'services/api_key_service.dart';
 import 'services/openai_service.dart';
 import 'services/network_connectivity_service.dart';
 import 'services/comprehensive_notification_service.dart';
+import 'services/firebase_supabase_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'firebase_options.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Early log to confirm app is starting - use both print and debugPrint
+  // These will appear in browser console (F12) for web
+  final startMsg = '🚀 [Main] App starting...';
+  debugPrint(startMsg);
+  print(startMsg);
+  
+  // For web, also log to browser console explicitly
+  if (kIsWeb) {
+    final webMsg = '🌐 [Main] Running on web platform - check browser console (F12) for logs';
+    debugPrint(webMsg);
+    print(webMsg);
+  }
+  
   runApp(AppInitializer());
 }
 
@@ -33,10 +50,74 @@ class AppInitializer extends StatelessWidget {
   const AppInitializer({super.key});
   
   Future<void> _initializeApp() async {
+    // Use debugPrint for better visibility in Flutter
+    debugPrint('🚀 [Main] Starting app initialization...');
+    
+    // Load environment variables from .env file
+    try {
+      await dotenv.load(fileName: ".env");
+      debugPrint('✅ [Main] Environment variables loaded from .env file');
+      print('✅ [Main] Environment variables loaded from .env file');
+    } catch (e) {
+      debugPrint('⚠️ [Main] Failed to load .env file: $e');
+      debugPrint('⚠️ [Main] Make sure .env file exists in the root directory');
+      print('⚠️ [Main] Failed to load .env file: $e');
+      print('⚠️ [Main] Make sure .env file exists in the root directory');
+    }
+    
     // Initialize Firebase
+    debugPrint('🔥 [Main] Initializing Firebase...');
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    debugPrint('✅ [Main] Firebase initialized');
+    
+    // Initialize Supabase from environment variables
+    try {
+      debugPrint('🔍 [Main] Reading Supabase configuration from .env...');
+      final supabaseUrl = dotenv.env['SUPABASE_URL'];
+      if (supabaseUrl == null || supabaseUrl.isEmpty) {
+        throw Exception('SUPABASE_URL not found in .env file');
+      }
+      debugPrint('✅ [Main] SUPABASE_URL loaded from .env: ${supabaseUrl.substring(0, supabaseUrl.length > 30 ? 30 : supabaseUrl.length)}...');
+      print('✅ [Main] SUPABASE_URL loaded from .env: ${supabaseUrl.substring(0, supabaseUrl.length > 30 ? 30 : supabaseUrl.length)}...');
+      
+      final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
+      
+      if (supabaseAnonKey == null || supabaseAnonKey.isEmpty) {
+        throw Exception('SUPABASE_ANON_KEY not found in .env file');
+      }
+      
+      // Log key info (masked for security)
+      final keyPrefix = supabaseAnonKey.length > 20 ? supabaseAnonKey.substring(0, 20) : supabaseAnonKey;
+      final keySuffix = supabaseAnonKey.length > 20 ? supabaseAnonKey.substring(supabaseAnonKey.length - 10) : '';
+      final keyInfo = '✅ [Main] SUPABASE_ANON_KEY loaded from .env: ${keyPrefix}...${keySuffix} (length: ${supabaseAnonKey.length})';
+      debugPrint(keyInfo);
+      print(keyInfo);
+      
+      // Verify key format (should start with 'eyJ' for JWT)
+      if (!supabaseAnonKey.startsWith('eyJ')) {
+        final warning = '⚠️ [Main] WARNING: SUPABASE_ANON_KEY does not start with "eyJ" - may be invalid JWT format';
+        debugPrint(warning);
+        print(warning);
+      }
+      
+      debugPrint('🔧 [Main] Initializing Supabase service...');
+      await FirebaseSupabaseService.instance.initialize(
+        supabaseUrl: supabaseUrl,
+        supabaseAnonKey: supabaseAnonKey,
+      );
+      debugPrint('✅ [Main] Supabase service initialized successfully');
+      print('✅ [Main] Supabase service initialized successfully');
+    } catch (e, stackTrace) {
+      final errorMsg = '❌ [Main] Failed to initialize Supabase service: $e';
+      debugPrint(errorMsg);
+      debugPrint('Stack trace: $stackTrace');
+      print(errorMsg);
+      print('⚠️ [Main] Supabase features may not work properly');
+      print('⚠️ [Main] Make sure SUPABASE_ANON_KEY is set in .env file');
+      print('⚠️ [Main] Check that .env file exists in project root and contains valid keys');
+    }
     
     // Initialize API keys
     await ApiKeyService.initialize();

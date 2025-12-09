@@ -21,6 +21,8 @@ import '../screens/cashout_screen.dart';
 import '../screens/professional_booking_management_screen.dart';
 import '../services/payout_service.dart';
 import '../models/payout_models.dart';
+import '../widgets/service_package_management_widget.dart';
+import '../widgets/service_package_list_widget.dart';
 
 class ServiceProfessionalProfileScreen extends StatefulWidget {
   final String? professionalId; // If null, shows current user's profile
@@ -1486,6 +1488,10 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
                     _buildCertificationsAndSpecialtiesSection(),
                   ],
                   
+                  // Services Section - Show in both views
+                  const SizedBox(height: 20),
+                  _buildServicesSection(),
+                  
                   // Work Showcase Section - Show in both views
                   const SizedBox(height: 20),
                   _buildWorkShowcaseSection(),
@@ -2055,6 +2061,50 @@ class _ServiceProfessionalProfileScreenState extends State<ServiceProfessionalPr
             ),
           ],
         ],
+    );
+  }
+
+  // Build services section
+  Widget _buildServicesSection() {
+    if (_professional == null) return const SizedBox.shrink();
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Services',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Show management widget for current user, list widget for customers
+          if (_isCurrentUser && !widget.isCustomerView)
+            ServicePackageManagementWidget(
+              professionalId: _professional!.id,
+              isCurrentUser: _isCurrentUser,
+            )
+          else
+            ServicePackageListWidget(
+              professionalId: _professional!.id,
+              professionalName: _professional!.fullName,
+              isCustomerView: widget.isCustomerView || !_isCurrentUser,
+            ),
+        ],
+      ),
     );
   }
 

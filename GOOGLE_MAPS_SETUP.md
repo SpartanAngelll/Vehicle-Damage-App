@@ -39,7 +39,7 @@ Your `strings.xml` should look like this:
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">vehicle_damage_app</string>
-    <string name="google_maps_key">AIzaSyBvOkBw3cJ8X8X8X8X8X8X8X8X8X8X8X8X8</string>
+    <string name="google_maps_key">YOUR_GOOGLE_MAPS_API_KEY_HERE</string>
 </resources>
 ```
 

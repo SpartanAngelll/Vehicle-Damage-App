@@ -11,6 +11,7 @@ import '../widgets/banking_details_form.dart';
 import '../widgets/profile_avatar.dart';
 import '../theme/theme_provider.dart';
 import '../services/permission_service.dart';
+import '../test_firebase_auth_rls.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -124,6 +125,10 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
           
           _buildSectionHeader(context, "Onboarding"),
           _buildOnboardingCard(context),
+          SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+          
+          _buildSectionHeader(context, "Testing & Development"),
+          _buildTestingCard(context),
         ],
       ),
     );
@@ -184,6 +189,10 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 
                 _buildSectionHeader(context, "Onboarding"),
                 _buildOnboardingCard(context),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                
+                _buildSectionHeader(context, "Testing & Development"),
+                _buildTestingCard(context),
               ],
             ),
           ),
@@ -255,6 +264,10 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
                 
                 _buildSectionHeader(context, "Onboarding"),
                 _buildOnboardingCard(context),
+                SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 20, tablet: 24, desktop: 28)),
+                
+                _buildSectionHeader(context, "Testing & Development"),
+                _buildTestingCard(context),
               ],
             ),
           ),
@@ -927,6 +940,115 @@ Onboarding: ${onboardingCompleted ? 'Completed' : 'Not completed'}
         ),
       ),
     );
+  }
+
+  Widget _buildTestingCard(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(ResponsiveUtils.getResponsivePadding(context)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Firebase Auth & RLS Testing",
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontSize: ResponsiveUtils.getResponsiveFontSize(
+                  context,
+                  mobile: 18,
+                  tablet: 20,
+                  desktop: 22,
+                ),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 12, tablet: 16, desktop: 20)),
+            Text(
+              "Test Firebase authentication and Supabase RLS policies to verify users can only access their own data.",
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontSize: ResponsiveUtils.getResponsiveFontSize(
+                  context,
+                  mobile: 14,
+                  tablet: 16,
+                  desktop: 18,
+                ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            SizedBox(height: ResponsiveUtils.getResponsivePadding(context, mobile: 16, tablet: 20, desktop: 24)),
+            Semantics(
+              label: 'Run RLS test',
+              button: true,
+              child: ElevatedButton.icon(
+                onPressed: () => _runRLSTest(context),
+                icon: Icon(Icons.security),
+                label: Text(
+                  "Run RLS Test",
+                  style: TextStyle(
+                    fontSize: ResponsiveUtils.getResponsiveFontSize(
+                      context,
+                      mobile: 14,
+                      tablet: 16,
+                      desktop: 18,
+                    ),
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runRLSTest(BuildContext context) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Running RLS test...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Run the test - output will go to console/debug
+      await testFirebaseAuthAndRLS();
+      
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('RLS test completed! Check console/debug output for results.'),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('RLS test failed: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   Widget _showThemeSelector(BuildContext context) {

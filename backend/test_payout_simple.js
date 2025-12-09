@@ -6,7 +6,9 @@ const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'vehicle_damage_payments',
-  password: '#!Startpos12',
+  password: process.env.POSTGRES_PASSWORD || (() => {
+    throw new Error('POSTGRES_PASSWORD environment variable is required');
+  })(),
   port: 5432,
 });
 

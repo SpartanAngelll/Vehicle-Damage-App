@@ -865,8 +865,14 @@ class _SearchProfessionalsScreenState extends State<SearchProfessionalsScreen> {
         );
       } else {
         // Create new direct chat
+        // IMPORTANT: Use currentUser?.uid to ensure we use the current Firebase Auth UID
+        final currentCustomerId = userState.currentUser?.uid ?? userState.userId;
+        if (currentCustomerId == null) {
+          _showErrorSnackBar('Please log in to start a chat');
+          return;
+        }
         final newChat = await chatService.createDirectChatRoom(
-          customerId: userState.userId!,
+          customerId: currentCustomerId,
           professionalId: professional.userId,
           customerName: userState.fullName ?? 'Customer',
           professionalName: professional.fullName,
@@ -924,6 +930,13 @@ class _SearchProfessionalsScreenState extends State<SearchProfessionalsScreen> {
       return;
     }
 
+    // IMPORTANT: Use currentUser?.uid to ensure we use the current Firebase Auth UID
+    final currentCustomerId = userState.currentUser?.uid ?? userState.userId;
+    if (currentCustomerId == null) {
+      _showErrorSnackBar('Please log in to book an appointment');
+      return;
+    }
+    
     // For now, we'll use placeholder values for the booking
     // In a real app, these would come from a service request or user input
     Navigator.push(
@@ -931,7 +944,7 @@ class _SearchProfessionalsScreenState extends State<SearchProfessionalsScreen> {
       MaterialPageRoute(
         builder: (context) => CustomerBookingScreen(
           professional: professional,
-          customerId: userState.userId!,
+          customerId: currentCustomerId,
           customerName: userState.fullName ?? 'Customer',
           serviceTitle: 'Service Request', // This would come from the actual service request
           serviceDescription: 'Please describe your service needs', // This would be more specific

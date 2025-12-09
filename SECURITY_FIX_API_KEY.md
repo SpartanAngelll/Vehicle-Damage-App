@@ -19,7 +19,7 @@ A Firebase API key was hardcoded in `web/firebase-messaging-sw.js` and exposed i
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Select your project: `vehicle-damage-app`
 3. Navigate to **APIs & Services** → **Credentials**
-4. Find the API key: `AIzaSyDsLqQSQf7LKwU0X_2e6_xca9YR-7s5t_Y`
+4. Find the API key: Check your Google Cloud Console for the exposed key (if this document was created to fix an exposure)
 5. Click on it and select **Restrict key** or **Delete key**
 6. If restricting, add domain restrictions:
    - `https://vehicle-damage-app.web.app/*`

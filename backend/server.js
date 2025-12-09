@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -10,18 +11,184 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Database connection
+// Database connection with SSL support for Supabase
 const pool = new Pool({
   user: process.env.POSTGRES_USER || 'postgres',
   host: process.env.POSTGRES_HOST || 'localhost',
   database: process.env.POSTGRES_DB || 'vehicle_damage_payments',
-  password: process.env.POSTGRES_PASSWORD || '#!Startpos12',
+  password: (() => {
+    if (!process.env.POSTGRES_PASSWORD) {
+      throw new Error('POSTGRES_PASSWORD environment variable is required');
+    }
+    return process.env.POSTGRES_PASSWORD;
+  })(),
   port: process.env.POSTGRES_PORT || 5432,
+  // SSL configuration for Supabase (required)
+  ssl: process.env.POSTGRES_SSL === 'true' || process.env.POSTGRES_SSL === '1' 
+    ? {
+        rejectUnauthorized: process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED !== 'false'
+      }
+    : false,
+  // Connection pool settings
+  max: 20, // Maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection cannot be established
+});
+
+// Test database connection on startup
+pool.on('connect', () => {
+  console.log('✅ Connected to Supabase database');
+});
+
+pool.on('error', (err) => {
+  console.error('❌ Database connection error:', err.message);
+  if (err.code === 'ENOTFOUND') {
+    console.error('   DNS resolution failed. Check your network connection and Supabase hostname.');
+  }
 });
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Get all users (for verification/testing)
+app.get('/api/users', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        id,
+        firebase_uid,
+        email,
+        full_name,
+        display_name,
+        role,
+        phone_number,
+        is_verified,
+        is_active,
+        created_at,
+        updated_at
+      FROM users
+      ORDER BY created_at DESC
+      LIMIT 50`
+    );
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      users: result.rows.map(row => ({
+        id: row.id,
+        firebase_uid: row.firebase_uid,
+        email: row.email,
+        full_name: row.full_name,
+        display_name: row.display_name,
+        role: row.role,
+        phone_number: row.phone_number,
+        is_verified: row.is_verified,
+        is_active: row.is_active,
+        created_at: row.created_at?.toISOString(),
+        updated_at: row.updated_at?.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
+});
+
+// Get user by Firebase UID
+app.get('/api/users/firebase/:firebaseUid', async (req, res) => {
+  try {
+    const { firebaseUid } = req.params;
+    
+    const result = await pool.query(
+      `SELECT 
+        id,
+        firebase_uid,
+        email,
+        full_name,
+        display_name,
+        role,
+        phone_number,
+        is_verified,
+        is_active,
+        created_at,
+        updated_at
+      FROM users
+      WHERE firebase_uid = $1`,
+      [firebaseUid]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        message: `No user found with Firebase UID: ${firebaseUid}`
+      });
+    }
+
+    const user = result.rows[0];
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        firebase_uid: user.firebase_uid,
+        email: user.email,
+        full_name: user.full_name,
+        display_name: user.display_name,
+        role: user.role,
+        phone_number: user.phone_number,
+        is_verified: user.is_verified,
+        is_active: user.is_active,
+        created_at: user.created_at?.toISOString(),
+        updated_at: user.updated_at?.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting user:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
+});
+
+// Get user count by role
+app.get('/api/users/stats', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        role,
+        COUNT(*) as count
+      FROM users
+      GROUP BY role
+      ORDER BY count DESC`
+    );
+
+    const totalResult = await pool.query('SELECT COUNT(*) as total FROM users');
+    const total = parseInt(totalResult.rows[0].total);
+
+    res.json({
+      success: true,
+      total_users: total,
+      by_role: result.rows.map(row => ({
+        role: row.role,
+        count: parseInt(row.count),
+      })),
+    });
+  } catch (error) {
+    console.error('Error getting user stats:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
 });
 
 // Get professional balance
@@ -413,6 +580,273 @@ app.delete('/api/payouts/:payoutId', async (req, res) => {
   }
 });
 
+// ==============================================
+// SERVICE PACKAGES API ENDPOINTS
+// ==============================================
+
+// Get all service packages for a professional
+app.get('/api/professionals/:professionalId/service-packages', async (req, res) => {
+  try {
+    const { professionalId } = req.params;
+    const { active_only } = req.query;
+    
+    let query = 'SELECT * FROM service_packages WHERE professional_id = $1';
+    const params = [professionalId];
+    
+    if (active_only === 'true') {
+      query += ' AND is_active = $2';
+      params.push(true);
+    }
+    
+    query += ' ORDER BY sort_order ASC, created_at DESC';
+    
+    const result = await pool.query(query, params);
+    
+    const packages = result.rows.map(row => ({
+      id: row.id,
+      professional_id: row.professional_id,
+      name: row.name,
+      description: row.description,
+      price: parseFloat(row.price),
+      currency: row.currency,
+      duration_minutes: row.duration_minutes,
+      is_starting_from: row.is_starting_from,
+      is_active: row.is_active,
+      sort_order: row.sort_order,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+      metadata: row.metadata || {},
+    }));
+    
+    res.json({ packages });
+  } catch (error) {
+    console.error('Error getting service packages:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get a single service package by ID
+app.get('/api/service-packages/:packageId', async (req, res) => {
+  try {
+    const { packageId } = req.params;
+    
+    const result = await pool.query(
+      'SELECT * FROM service_packages WHERE id = $1',
+      [packageId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Service package not found' });
+    }
+    
+    const row = result.rows[0];
+    res.json({
+      id: row.id,
+      professional_id: row.professional_id,
+      name: row.name,
+      description: row.description,
+      price: parseFloat(row.price),
+      currency: row.currency,
+      duration_minutes: row.duration_minutes,
+      is_starting_from: row.is_starting_from,
+      is_active: row.is_active,
+      sort_order: row.sort_order,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+      metadata: row.metadata || {},
+    });
+  } catch (error) {
+    console.error('Error getting service package:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create a new service package
+app.post('/api/professionals/:professionalId/service-packages', async (req, res) => {
+  try {
+    const { professionalId } = req.params;
+    const { name, description, price, currency, duration_minutes, is_starting_from, sort_order, metadata } = req.body;
+    
+    // Validation
+    if (!name || !price || !duration_minutes) {
+      return res.status(400).json({ error: 'Missing required fields: name, price, duration_minutes' });
+    }
+    
+    if (price <= 0) {
+      return res.status(400).json({ error: 'Price must be greater than 0' });
+    }
+    
+    if (duration_minutes <= 0) {
+      return res.status(400).json({ error: 'Duration must be greater than 0' });
+    }
+    
+    const packageId = uuidv4();
+    const now = new Date();
+    
+    const result = await pool.query(
+      `INSERT INTO service_packages (
+        id, professional_id, name, description, price, currency, 
+        duration_minutes, is_starting_from, is_active, sort_order, 
+        created_at, updated_at, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`,
+      [
+        packageId,
+        professionalId,
+        name,
+        description || null,
+        price,
+        currency || 'JMD',
+        duration_minutes,
+        is_starting_from || false,
+        true, // is_active defaults to true
+        sort_order || 0,
+        now,
+        now,
+        metadata || {},
+      ]
+    );
+    
+    const row = result.rows[0];
+    res.status(201).json({
+      id: row.id,
+      professional_id: row.professional_id,
+      name: row.name,
+      description: row.description,
+      price: parseFloat(row.price),
+      currency: row.currency,
+      duration_minutes: row.duration_minutes,
+      is_starting_from: row.is_starting_from,
+      is_active: row.is_active,
+      sort_order: row.sort_order,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+      metadata: row.metadata || {},
+    });
+  } catch (error) {
+    console.error('Error creating service package:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update a service package
+app.put('/api/service-packages/:packageId', async (req, res) => {
+  try {
+    const { packageId } = req.params;
+    const { name, description, price, currency, duration_minutes, is_starting_from, is_active, sort_order, metadata } = req.body;
+    
+    // Build dynamic update query
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name);
+    }
+    if (description !== undefined) {
+      updates.push(`description = $${paramIndex++}`);
+      values.push(description);
+    }
+    if (price !== undefined) {
+      if (price <= 0) {
+        return res.status(400).json({ error: 'Price must be greater than 0' });
+      }
+      updates.push(`price = $${paramIndex++}`);
+      values.push(price);
+    }
+    if (currency !== undefined) {
+      updates.push(`currency = $${paramIndex++}`);
+      values.push(currency);
+    }
+    if (duration_minutes !== undefined) {
+      if (duration_minutes <= 0) {
+        return res.status(400).json({ error: 'Duration must be greater than 0' });
+      }
+      updates.push(`duration_minutes = $${paramIndex++}`);
+      values.push(duration_minutes);
+    }
+    if (is_starting_from !== undefined) {
+      updates.push(`is_starting_from = $${paramIndex++}`);
+      values.push(is_starting_from);
+    }
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${paramIndex++}`);
+      values.push(is_active);
+    }
+    if (sort_order !== undefined) {
+      updates.push(`sort_order = $${paramIndex++}`);
+      values.push(sort_order);
+    }
+    if (metadata !== undefined) {
+      updates.push(`metadata = $${paramIndex++}`);
+      values.push(metadata);
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    
+    // Always update updated_at
+    updates.push(`updated_at = $${paramIndex++}`);
+    values.push(new Date());
+    
+    values.push(packageId);
+    
+    const query = `UPDATE service_packages 
+                   SET ${updates.join(', ')} 
+                   WHERE id = $${paramIndex}
+                   RETURNING *`;
+    
+    const result = await pool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Service package not found' });
+    }
+    
+    const row = result.rows[0];
+    res.json({
+      id: row.id,
+      professional_id: row.professional_id,
+      name: row.name,
+      description: row.description,
+      price: parseFloat(row.price),
+      currency: row.currency,
+      duration_minutes: row.duration_minutes,
+      is_starting_from: row.is_starting_from,
+      is_active: row.is_active,
+      sort_order: row.sort_order,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+      metadata: row.metadata || {},
+    });
+  } catch (error) {
+    console.error('Error updating service package:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete a service package
+app.delete('/api/service-packages/:packageId', async (req, res) => {
+  try {
+    const { packageId } = req.params;
+    
+    const result = await pool.query(
+      'DELETE FROM service_packages WHERE id = $1 RETURNING id',
+      [packageId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Service package not found' });
+    }
+    
+    res.json({ message: 'Service package deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting service package:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Mock payment processor integration
 async function processPayoutWithPaymentProcessor({ payoutId, professionalId, amount }) {
   try {
@@ -452,9 +886,12 @@ async function processPayoutWithPaymentProcessor({ payoutId, professionalId, amo
 }
 
 // Start server
-app.listen(port, () => {
-  console.log(`🚀 Cash-out API server running on port ${port}`);
+// Listen on 0.0.0.0 to accept connections from other devices on the network
+const host = process.env.HOST || '0.0.0.0';
+app.listen(port, host, () => {
+  console.log(`🚀 Cash-out API server running on ${host}:${port}`);
   console.log(`📊 Health check: http://localhost:${port}/api/health`);
+  console.log(`📱 Network access: http://192.168.0.53:${port}/api/health`);
 });
 
 module.exports = app;

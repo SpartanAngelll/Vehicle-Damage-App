@@ -28,5 +28,8 @@ export 'postgres_payment_service.dart';
 export 'real_time_distribution_service.dart';
 export 'review_service.dart';
 export 'service_category_service.dart';
+export 'service_package_service.dart';
 export 'simple_notification_service.dart';
 export 'storage_service.dart';
+export 'supabase_booking_service.dart';
+export 'supabase_workflow_service.dart';

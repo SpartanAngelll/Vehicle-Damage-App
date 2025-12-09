@@ -1,18 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/booking_models.dart';
 import '../models/service.dart';
-import 'postgres_booking_service.dart';
+import 'supabase_booking_service.dart';
 import 'firebase_firestore_service.dart';
 
 /// Service for managing the InDrive-style booking workflow
-/// Coordinates between Firestore (real-time UI) and PostgreSQL (financial records)
+/// Coordinates between Firestore (real-time UI) and Supabase (financial records via REST API)
+/// Production-ready: Uses only Supabase REST API for all database operations
 class BookingWorkflowService {
   static final BookingWorkflowService _instance = BookingWorkflowService._internal();
   factory BookingWorkflowService() => _instance;
   BookingWorkflowService._internal();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final PostgresBookingService _postgresBookingService = PostgresBookingService.instance;
+  final SupabaseBookingService _supabaseBookingService = SupabaseBookingService.instance;
   final FirebaseFirestoreService _firestoreService = FirebaseFirestoreService();
 
   /// Set "On My Way" status
@@ -46,19 +47,45 @@ class BookingWorkflowService {
         isCustomerTraveling = userId == booking.professionalId;
       }
       
-      // Try to update in PostgreSQL, but create booking if it doesn't exist
+      // Determine who should be traveling for validation
+      String? travelingUserId;
+      if (travelMode == TravelMode.customerTravels) {
+        travelingUserId = booking.customerId;
+      } else if (travelMode == TravelMode.proTravels) {
+        travelingUserId = booking.professionalId;
+      } else {
+        // For remote services, default to customer
+        travelingUserId = booking.customerId;
+      }
+      
+      // Verify the user setting status is the one who should be traveling
+      if (userId != travelingUserId) {
+        throw Exception('Only the traveling party can set "On My Way" status');
+      }
+      
+      // Use Supabase REST API (production-ready, works on all platforms)
       try {
-        await _postgresBookingService.setOnMyWay(
+        final success = await _supabaseBookingService.setOnMyWay(
           bookingId: bookingId,
           userId: userId,
         );
+        
+        if (!success) {
+          throw Exception('Failed to update booking status in Supabase');
+        }
       } catch (e) {
-        // If booking doesn't exist in PostgreSQL, create it first
-        if (e.toString().contains('Booking not found') || e.toString().contains('not found')) {
-          print('⚠️ [BookingWorkflow] Booking not found in PostgreSQL, creating it now...');
+        // Handle booking not found or duplicate key errors
+        final errorString = e.toString();
+        if (errorString.contains('Booking not found') || 
+            errorString.contains('not found') ||
+            errorString.contains('duplicate key') ||
+            errorString.contains('23505')) {
           
-          // Create booking in PostgreSQL
-          await _postgresBookingService.createBooking(
+          print('⚠️ [BookingWorkflow] Booking may not exist in Supabase or already exists, syncing it now...');
+          
+          // Create/update booking in Supabase (upsert handles both new and existing bookings)
+          // This will update the booking if it exists, or create it if it doesn't
+          await _supabaseBookingService.createBooking(
             bookingId: bookingId,
             customerId: booking.customerId,
             professionalId: booking.professionalId,
@@ -82,13 +109,43 @@ class BookingWorkflowService {
             travelFee: booking.travelFee,
           );
           
-          // Now try to set "On My Way" again
-          await _postgresBookingService.setOnMyWay(
-            bookingId: bookingId,
-            userId: userId,
-          );
+          // Small delay to ensure booking is fully committed before querying
+          // Use exponential backoff for retries
+          await Future.delayed(const Duration(milliseconds: 300));
           
-          print('✅ [BookingWorkflow] Booking created in PostgreSQL and "On My Way" status set');
+          // Now try to set "On My Way" again with retry logic
+          bool success = false;
+          int retries = 3;
+          int attempt = 0;
+          while (!success && retries > 0) {
+            try {
+              success = await _supabaseBookingService.setOnMyWay(
+                bookingId: bookingId,
+                userId: userId,
+              );
+              if (!success && retries > 1) {
+                // Exponential backoff: 300ms, 600ms, 1200ms
+                final delayMs = 300 * (1 << attempt);
+                await Future.delayed(Duration(milliseconds: delayMs));
+              }
+            } catch (e) {
+              if (retries > 1) {
+                final delayMs = 300 * (1 << attempt);
+                print('⚠️ [BookingWorkflow] Retrying setOnMyWay (${4 - retries}/3) after ${delayMs}ms: $e');
+                await Future.delayed(Duration(milliseconds: delayMs));
+              } else {
+                rethrow;
+              }
+            }
+            retries--;
+            attempt++;
+          }
+          
+          if (!success) {
+            throw Exception('Failed to set "On My Way" status after syncing booking');
+          }
+          
+          print('✅ [BookingWorkflow] Booking synced to Supabase and "On My Way" status set');
         } else {
           // Re-throw if it's a different error
           rethrow;
@@ -135,8 +192,8 @@ class BookingWorkflowService {
     try {
       print('🔍 [BookingWorkflow] Verifying PIN for booking: $bookingId');
       
-      // Verify PIN in PostgreSQL
-      final isValid = await _postgresBookingService.verifyPinAndStartJob(
+      // Verify PIN in Supabase (via REST API)
+      final isValid = await _supabaseBookingService.verifyPinAndStartJob(
         bookingId: bookingId,
         pin: pin,
       );
@@ -169,11 +226,15 @@ class BookingWorkflowService {
     try {
       print('🔍 [BookingWorkflow] Marking job as completed for booking: $bookingId');
       
-      // Update in PostgreSQL
-      await _postgresBookingService.markJobCompleted(
+      // Update in Supabase (via REST API)
+      final success = await _supabaseBookingService.markJobCompleted(
         bookingId: bookingId,
         notes: notes,
       );
+      
+      if (!success) {
+        throw Exception('Failed to mark job as completed in Supabase');
+      }
       
       // Update in Firestore for real-time UI
       await _firestore.collection('bookings').doc(bookingId).update({
@@ -197,10 +258,14 @@ class BookingWorkflowService {
     try {
       print('🔍 [BookingWorkflow] Confirming job completion for booking: $bookingId');
       
-      // Update in PostgreSQL
-      await _postgresBookingService.confirmJobCompletion(
+      // Update in Supabase (via REST API)
+      final success = await _supabaseBookingService.confirmJobCompletion(
         bookingId: bookingId,
       );
+      
+      if (!success) {
+        throw Exception('Failed to confirm job completion in Supabase');
+      }
       
       // Update in Firestore for real-time UI
       await _firestore.collection('bookings').doc(bookingId).update({
@@ -228,13 +293,17 @@ class BookingWorkflowService {
     try {
       print('🔍 [BookingWorkflow] Confirming payment for booking: $bookingId');
       
-      // Update in PostgreSQL
-      await _postgresBookingService.confirmPayment(
+      // Update in Supabase (via REST API)
+      final success = await _supabaseBookingService.confirmPayment(
         bookingId: bookingId,
         professionalId: professionalId,
         amount: amount,
         notes: notes,
       );
+      
+      if (!success) {
+        throw Exception('Failed to confirm payment in Supabase');
+      }
       
       // Update in Firestore for real-time UI
       await _firestore.collection('bookings').doc(bookingId).update({
@@ -264,8 +333,8 @@ class BookingWorkflowService {
     try {
       print('🔍 [BookingWorkflow] Submitting customer review for booking: $bookingId');
       
-      // Create review in PostgreSQL
-      await _postgresBookingService.createReview(
+      // Create review in Supabase (via REST API)
+      final success = await _supabaseBookingService.createReview(
         bookingId: bookingId,
         reviewerId: customerId,
         revieweeId: professionalId,
@@ -273,6 +342,10 @@ class BookingWorkflowService {
         title: null,
         comment: reviewText,
       );
+      
+      if (!success) {
+        throw Exception('Failed to create review in Supabase');
+      }
       
       // Create review in Firestore for real-time UI
       final reviewId = _firestore.collection('reviews').doc().id;
@@ -306,8 +379,8 @@ class BookingWorkflowService {
     try {
       print('🔍 [BookingWorkflow] Submitting professional review for booking: $bookingId');
       
-      // Create review in PostgreSQL
-      await _postgresBookingService.createReview(
+      // Create review in Supabase (via REST API)
+      final success = await _supabaseBookingService.createReview(
         bookingId: bookingId,
         reviewerId: professionalId,
         revieweeId: customerId,
@@ -315,6 +388,10 @@ class BookingWorkflowService {
         title: null,
         comment: reviewText,
       );
+      
+      if (!success) {
+        throw Exception('Failed to create review in Supabase');
+      }
       
       // Create review in Firestore for real-time UI
       final reviewId = _firestore.collection('professional_reviews').doc().id;
@@ -353,14 +430,9 @@ class BookingWorkflowService {
   }
 
   /// Initialize the service
+  /// No initialization needed - Supabase REST API is always available
   Future<void> initialize() async {
-    try {
-      await _postgresBookingService.initialize();
-      print('✅ [BookingWorkflow] Service initialized');
-    } catch (e) {
-      print('⚠️ [BookingWorkflow] Failed to initialize PostgreSQL: $e');
-      // Don't fail - Firestore will still work for real-time UI
-    }
+    print('✅ [BookingWorkflow] Service initialized (using Supabase REST API)');
   }
 }
 

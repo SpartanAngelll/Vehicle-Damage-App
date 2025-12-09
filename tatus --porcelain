@@ -1,0 +1,79 @@
+warning: in the working copy of 'android/app/src/main/AndroidManifest.xml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'android/build.gradle.kts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'android/gradle.properties', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'android/settings.gradle.kts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/functions/index.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/functions/package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/functions/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'firestore.rules', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/main.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/models/booking_availability_models.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/models/booking_models.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/models/models.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/screens/professional_booking_management_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/screens/search_professionals_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/screens/service_professional_profile_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/screens/settings_screen.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/api_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/booking_availability_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/chat_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/firebase_auth_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/openai_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/postgres_payment_service.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/services/services.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/widgets/booking_calendar_widget.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/widgets/embedded_map_widget.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/widgets/service_professional_registration_form.dart', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'linux/flutter/generated_plugin_registrant.cc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'linux/flutter/generated_plugins.cmake', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'macos/Flutter/GeneratedPluginRegistrant.swift', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pubspec.lock', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pubspec.yaml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'windows/flutter/generated_plugin_registrant.cc', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'windows/flutter/generated_plugins.cmake', LF will be replaced by CRLF the next time Git touches it
+BOOKING_SYSTEM_README.md
+GOOGLE_MAPS_SETUP.md
+SECURITY_FIX_API_KEY.md
+android/app/src/main/AndroidManifest.xml
+android/build.gradle.kts
+android/gradle.properties
+android/settings.gradle.kts
+backend/functions/index.js
+backend/functions/package-lock.json
+backend/functions/package.json
+backend/node_modules/.package-lock.json
+backend/package-lock.json
+backend/package.json
+backend/server.js
+backend/test_payout_simple.js
+database/booking_availability_schema.sql
+firestore.rules
+lib/main.dart
+lib/models/booking_availability_models.dart
+lib/models/booking_models.dart
+lib/models/models.dart
+lib/screens/booking_integration_example.dart
+lib/screens/professional_booking_management_screen.dart
+lib/screens/search_professionals_screen.dart
+lib/screens/service_professional_profile_screen.dart
+lib/screens/settings_screen.dart
+lib/services/api_key_service.dart
+lib/services/api_service.dart
+lib/services/booking_availability_service.dart
+lib/services/booking_workflow_service.dart
+lib/services/chat_service.dart
+lib/services/firebase_auth_service.dart
+lib/services/openai_service.dart
+lib/services/postgres_payment_service.dart
+lib/services/services.dart
+lib/widgets/embedded_map_widget.dart
+lib/widgets/service_professional_registration_form.dart
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated_plugins.cmake
+macos/Flutter/GeneratedPluginRegistrant.swift
+pubspec.lock
+pubspec.yaml
+simple_balance_test.dart
+test_balance_simple.dart
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugins.cmake

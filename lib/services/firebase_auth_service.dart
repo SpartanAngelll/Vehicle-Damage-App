@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'firebase_supabase_service.dart';
 
 class FirebaseAuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -48,6 +49,15 @@ class FirebaseAuthService extends ChangeNotifier {
       // For now, we'll store it in user metadata
       await credential.user?.updateDisplayName(userType);
       
+      // Sync user to Supabase
+      try {
+        await _syncUserToSupabase(credential.user!, userType: userType);
+      } catch (e) {
+        // Don't fail signup if Supabase sync fails, just log it
+        debugPrint('⚠️ [FirebaseAuth] Failed to sync user to Supabase: $e');
+        debugPrint('⚠️ [FirebaseAuth] User created in Firebase but not in Supabase');
+      }
+      
       _setLoading(false);
       return credential;
     } on FirebaseAuthException catch (e) {
@@ -74,6 +84,14 @@ class FirebaseAuthService extends ChangeNotifier {
         email: email,
         password: password,
       );
+      
+      // Sync user to Supabase on sign in (in case they weren't synced before)
+      try {
+        await _syncUserToSupabase(credential.user!);
+      } catch (e) {
+        // Don't fail signin if Supabase sync fails, just log it
+        debugPrint('⚠️ [FirebaseAuth] Failed to sync user to Supabase: $e');
+      }
       
       _setLoading(false);
       return credential;
@@ -216,6 +234,72 @@ class FirebaseAuthService extends ChangeNotifier {
           return 'Network error: Please check your internet connection and try again.';
         }
         return 'Authentication failed: $code';
+    }
+  }
+
+  // Sync user to Supabase
+  Future<void> _syncUserToSupabase(
+    User user, {
+    String? userType,
+  }) async {
+    try {
+      final supabase = FirebaseSupabaseService.instance;
+      final client = supabase.client;
+      
+      if (client == null) {
+        debugPrint('⚠️ [FirebaseAuth] Supabase client not initialized, skipping sync');
+        return;
+      }
+
+      // Get Firebase ID token
+      final idToken = await user.getIdToken();
+      if (idToken == null) {
+        debugPrint('⚠️ [FirebaseAuth] Could not get Firebase ID token, skipping sync');
+        return;
+      }
+
+      // Set session with Firebase token
+      try {
+        await client.auth.setSession(idToken);
+      } catch (e) {
+        debugPrint('⚠️ [FirebaseAuth] Could not set Supabase session: $e');
+        // Continue anyway, we'll try to insert/update the user
+      }
+
+      // Use UPSERT to handle both new users and existing users gracefully
+      // This prevents duplicate key errors and race conditions
+      debugPrint('🔍 [FirebaseAuth] Syncing user to Supabase (UPSERT)...');
+      final result = await supabase.upsert(
+        table: 'users',
+        data: {
+          'firebase_uid': user.uid,
+          'email': user.email ?? '',
+          'full_name': user.displayName ?? '',
+          'role': userType ?? 'owner',
+          'updated_at': DateTime.now().toIso8601String(),
+          // Only set created_at if this is a new user (PostgreSQL will handle this)
+          // For existing users, created_at will be preserved
+        },
+        conflictTarget: 'firebase_uid',
+      );
+      
+      if (result == null || result.isEmpty) {
+        throw Exception('Failed to sync user to Supabase - upsert returned null');
+      }
+      
+      debugPrint('✅ [FirebaseAuth] User synced to Supabase: ${user.uid}');
+      debugPrint('🔍 [FirebaseAuth] User data: $result');
+    } catch (e) {
+      final supabase = FirebaseSupabaseService.instance;
+      debugPrint('❌ [FirebaseAuth] Error syncing user to Supabase: $e');
+      debugPrint('❌ [FirebaseAuth] User UID: ${user.uid}');
+      debugPrint('❌ [FirebaseAuth] User email: ${user.email}');
+      debugPrint('❌ [FirebaseAuth] Supabase client initialized: ${supabase.client != null}');
+      
+      // Don't rethrow - we don't want to fail signup if Supabase sync fails
+      // But log it clearly so it can be fixed
+      debugPrint('⚠️ [FirebaseAuth] User created in Firebase but NOT synced to Supabase');
+      debugPrint('⚠️ [FirebaseAuth] Check Supabase API keys and RLS policies');
     }
   }
 }

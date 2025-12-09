@@ -102,7 +102,7 @@ final weeklySchedule = [
     'isAvailable': true,
     'startTime': TimeOfDay(hour: 9, minute: 0),
     'endTime': TimeOfDay(hour: 17, minute: 0),
-    'slotDurationMinutes': 60,
+    'slotDurationMinutes': 10,
     'breakBetweenSlotsMinutes': 0,
   },
   // ... other days

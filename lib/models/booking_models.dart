@@ -74,6 +74,34 @@ class Booking {
     this.travelFee,
   });
 
+  /// Helper function to parse timestamps from either Firestore Timestamp or ISO string
+  static DateTime? _parseTimestamp(dynamic value) {
+    if (value == null) return null;
+    
+    // If it's already a Timestamp object (from Firestore)
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    
+    // If it's a string (ISO format from Supabase or other sources)
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (e) {
+        print('⚠️ [Booking] Error parsing timestamp string: $value, error: $e');
+        return null;
+      }
+    }
+    
+    // If it's already a DateTime
+    if (value is DateTime) {
+      return value;
+    }
+    
+    print('⚠️ [Booking] Unknown timestamp type: ${value.runtimeType}, value: $value');
+    return null;
+  }
+
   factory Booking.fromMap(Map<String, dynamic> map, String documentId) {
     return Booking(
       id: documentId,
@@ -86,12 +114,8 @@ class Booking {
       serviceTitle: map['serviceTitle'] ?? '',
       serviceDescription: map['serviceDescription'] ?? '',
       agreedPrice: (map['agreedPrice'] as num?)?.toDouble() ?? 0.0,
-      scheduledStartTime: map['scheduledStartTime'] != null 
-          ? (map['scheduledStartTime'] as Timestamp).toDate()
-          : DateTime.now(),
-      scheduledEndTime: map['scheduledEndTime'] != null
-          ? (map['scheduledEndTime'] as Timestamp).toDate()
-          : DateTime.now().add(const Duration(hours: 1)),
+      scheduledStartTime: _parseTimestamp(map['scheduledStartTime']) ?? DateTime.now(),
+      scheduledEndTime: _parseTimestamp(map['scheduledEndTime']) ?? DateTime.now().add(const Duration(hours: 1)),
       location: map['location'] ?? '',
       deliverables: List<String>.from(map['deliverables'] ?? []),
       importantPoints: List<String>.from(map['importantPoints'] ?? []),
@@ -99,20 +123,16 @@ class Booking {
         (e) => e.name == map['status'],
         orElse: () => BookingStatus.pending,
       ),
-      createdAt: map['createdAt'] != null
-          ? (map['createdAt'] as Timestamp).toDate()
-          : DateTime.now(),
-      updatedAt: map['updatedAt'] != null
-          ? (map['updatedAt'] as Timestamp).toDate()
-          : DateTime.now(),
+      createdAt: _parseTimestamp(map['createdAt']) ?? DateTime.now(),
+      updatedAt: _parseTimestamp(map['updatedAt']) ?? DateTime.now(),
       notes: map['notes'],
       metadata: map['metadata'],
-      confirmedAt: map['confirmedAt'] != null ? (map['confirmedAt'] as Timestamp).toDate() : null,
-      onMyWayAt: map['onMyWayAt'] != null ? (map['onMyWayAt'] as Timestamp).toDate() : null,
-      jobStartedAt: map['jobStartedAt'] != null ? (map['jobStartedAt'] as Timestamp).toDate() : null,
-      jobCompletedAt: map['jobCompletedAt'] != null ? (map['jobCompletedAt'] as Timestamp).toDate() : null,
-      jobAcceptedAt: map['jobAcceptedAt'] != null ? (map['jobAcceptedAt'] as Timestamp).toDate() : null,
-      reviewedAt: map['reviewedAt'] != null ? (map['reviewedAt'] as Timestamp).toDate() : null,
+      confirmedAt: _parseTimestamp(map['confirmedAt']),
+      onMyWayAt: _parseTimestamp(map['onMyWayAt']),
+      jobStartedAt: _parseTimestamp(map['jobStartedAt']),
+      jobCompletedAt: _parseTimestamp(map['jobCompletedAt']),
+      jobAcceptedAt: _parseTimestamp(map['jobAcceptedAt']),
+      reviewedAt: _parseTimestamp(map['reviewedAt']),
       customerPin: map['customerPin'],
       statusNotes: map['statusNotes'],
       finalTravelMode: map['finalTravelMode'] != null 

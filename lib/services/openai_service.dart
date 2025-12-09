@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:openai_dart/openai_dart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
 import '../models/chat_models.dart';
 import '../models/booking_models.dart';
 import 'api_key_service.dart';
@@ -13,6 +14,10 @@ class OpenAIService {
 
   final Uuid _uuid = const Uuid();
   OpenAIClient? _client;
+  
+  // Rate limiting to prevent abuse
+  DateTime? _lastApiCall;
+  static const _minCallInterval = Duration(seconds: 2);
   
   // Initialize with API key from ApiKeyService
   void initialize() {
@@ -433,14 +438,83 @@ Return ONLY the JSON object, no explanations or additional text.
 
   // Call OpenAI API to analyze conversation
   Future<String> _callOpenAIAPI(String prompt) async {
-    if (_client == null) {
-      throw Exception('OpenAI client not initialized');
+    final apiKey = ApiKeyService.openaiApiKey;
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('OpenAI API key not found');
     }
 
     try {
-      // For now, use the mock implementation since the API structure needs to be verified
-      // TODO: Implement actual OpenAI API call once the correct API structure is determined
-      throw Exception('API call not implemented yet - using mock');
+      // Basic rate limiting to prevent abuse
+      if (_lastApiCall != null) {
+        final timeSinceLastCall = DateTime.now().difference(_lastApiCall!);
+        if (timeSinceLastCall < _minCallInterval) {
+          final waitTime = _minCallInterval - timeSinceLastCall;
+          print('⏳ [OpenAI] Rate limiting: waiting ${waitTime.inMilliseconds}ms');
+          await Future.delayed(waitTime);
+        }
+      }
+      _lastApiCall = DateTime.now();
+      
+      print('🔍 [OpenAI] Making API call with prompt length: ${prompt.length}');
+      
+      // Prepare the request
+      final url = Uri.parse('https://api.openai.com/v1/chat/completions');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
+      
+      final body = jsonEncode({
+        'model': 'gpt-3.5-turbo',
+        'messages': [
+          {
+            'role': 'user',
+            'content': prompt,
+          },
+        ],
+        'temperature': 0.3, // Lower temperature for more consistent JSON output
+        'max_tokens': 1000,
+      });
+
+      // Make the API call with timeout
+      final response = await http.post(
+        url,
+        headers: headers,
+        body: body,
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('OpenAI API request timeout after 30 seconds');
+        },
+      );
+
+      // Check response status
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body) as Map<String, dynamic>;
+        
+        // Extract the response content
+        if (responseData.containsKey('choices') && 
+            (responseData['choices'] as List).isNotEmpty) {
+          final choice = (responseData['choices'] as List).first as Map<String, dynamic>;
+          final message = choice['message'] as Map<String, dynamic>;
+          final content = message['content'] as String?;
+          
+          if (content != null && content.isNotEmpty) {
+            print('✅ [OpenAI] API call successful, response length: ${content.length}');
+            return content;
+          } else {
+            throw Exception('Empty response content from OpenAI API');
+          }
+        } else {
+          throw Exception('No choices in OpenAI API response');
+        }
+      } else {
+        final errorBody = response.body.isNotEmpty 
+            ? jsonDecode(response.body) as Map<String, dynamic>
+            : <String, dynamic>{};
+        final errorMessage = errorBody['error']?['message'] ?? 'Unknown error';
+        throw Exception('OpenAI API error (${response.statusCode}): $errorMessage');
+      }
     } catch (e) {
       print('❌ [OpenAI] API call error: $e');
       rethrow;

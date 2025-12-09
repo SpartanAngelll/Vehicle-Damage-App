@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/booking_availability_models.dart';
 import '../models/booking_models.dart';
 import '../services/booking_availability_service.dart';
+import '../services/firebase_firestore_service.dart';
 import '../widgets/booking_calendar_widget.dart';
+import '../widgets/booking_calendar_grid.dart';
+import '../widgets/booking_card.dart';
 
 class ProfessionalBookingManagementScreen extends StatefulWidget {
   final String professionalId;
@@ -21,6 +25,9 @@ class ProfessionalBookingManagementScreen extends StatefulWidget {
 class _ProfessionalBookingManagementScreenState extends State<ProfessionalBookingManagementScreen>
     with SingleTickerProviderStateMixin {
   final BookingAvailabilityService _bookingService = BookingAvailabilityService();
+  final FirebaseFirestoreService _firestoreService = FirebaseFirestoreService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  CollectionReference get _bookingsCollection => _firestore.collection('bookings');
   
   late TabController _tabController;
   List<Booking> _upcomingBookings = [];
@@ -56,13 +63,39 @@ class _ProfessionalBookingManagementScreenState extends State<ProfessionalBookin
         endDate: endOfMonth.add(const Duration(days: 30)),
       );
       
+      // Fetch customer names from user profiles for bookings with placeholder names
+      final updatedBookings = await Future.wait(
+        bookings.map((booking) async {
+          // If customerName is "Customer" or empty, fetch from user profile
+          if (booking.customerName.isEmpty || 
+              booking.customerName.toLowerCase() == 'customer') {
+            try {
+              final customerProfile = await _firestoreService.getUserProfile(booking.customerId);
+              if (customerProfile != null) {
+                final fullName = customerProfile['fullName'] ?? 
+                               customerProfile['displayName'] ??
+                               customerProfile['username'] ?? 
+                               customerProfile['email']?.split('@')[0] ?? 
+                               'Customer';
+                
+                // Update the booking with the actual customer name
+                return booking.copyWith(customerName: fullName);
+              }
+            } catch (e) {
+              debugPrint('⚠️ [ProfessionalBookingManagement] Error fetching customer name for ${booking.customerId}: $e');
+            }
+          }
+          return booking;
+        }),
+      );
+      
       setState(() {
-        _upcomingBookings = bookings.where((b) => 
+        _upcomingBookings = updatedBookings.where((b) => 
           b.scheduledStartTime.isAfter(now) && 
           b.status != BookingStatus.cancelled
         ).toList();
         
-        _pastBookings = bookings.where((b) => 
+        _pastBookings = updatedBookings.where((b) => 
           b.scheduledStartTime.isBefore(now) || 
           b.status == BookingStatus.cancelled
         ).toList();
@@ -297,13 +330,58 @@ class _ProfessionalBookingManagementScreenState extends State<ProfessionalBookin
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _upcomingBookings.length,
-      itemBuilder: (context, index) {
-        final booking = _upcomingBookings[index];
-        return _buildBookingCard(booking, isUpcoming: true);
-      },
+    // Convert Booking models to CalendarBooking for the grid
+    // Use a stable key based on booking IDs and times to help Flutter identify
+    // when the grid should actually rebuild vs when it's just a reference change
+    final calendarBookings = _upcomingBookings.map((booking) {
+      return CalendarBooking(
+        id: booking.id,
+        start: booking.scheduledStartTime,
+        end: booking.scheduledEndTime,
+        title: booking.serviceTitle,
+        customerName: booking.customerName,
+        color: _getStatusColor(booking.status),
+      );
+    }).toList();
+
+    // Calculate start date (first day of current month)
+    final now = DateTime.now();
+    final startDate = DateTime(now.year, now.month, 1);
+
+    return Column(
+      children: [
+        // Instructions banner
+        Container(
+          padding: const EdgeInsets.all(12.0),
+          color: Colors.blue.shade50,
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue, size: 20),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Long-press a booking to drag it to a new time slot. Tap a booking to view details.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Calendar grid - shows full month by default
+        Expanded(
+          child: BookingCalendarGrid(
+            bookings: calendarBookings,
+            startDate: startDate,
+            numberOfDays: null, // null means show full month
+            onBookingRescheduled: _handleBookingRescheduled,
+            onBookingTap: _handleBookingTap,
+            rowHeight: 60.0,
+            columnWidth: 200.0,
+            showGridLines: true,
+            showMonthPaginator: true,
+          ),
+        ),
+      ],
     );
   }
 
@@ -393,6 +471,172 @@ class _ProfessionalBookingManagementScreenState extends State<ProfessionalBookin
     );
   }
 
+  /// Handle booking rescheduling via drag & drop
+  Future<void> _handleBookingRescheduled({
+    required String bookingId,
+    required DateTime newStartTime,
+    required DateTime newEndTime,
+  }) async {
+    try {
+      // Check for conflicts before updating
+      final conflicts = await _bookingService.checkBookingConflicts(
+        professionalId: widget.professionalId,
+        startTime: newStartTime,
+        endTime: newEndTime,
+        excludeBookingId: bookingId,
+      );
+
+      if (conflicts.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Cannot reschedule: ${conflicts.first.message}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        // Revert the optimistic update in the grid by reloading
+        await _loadBookings();
+        return;
+      }
+
+      // Update booking in Firestore
+      await _bookingsCollection.doc(bookingId).update({
+        'scheduledStartTime': Timestamp.fromDate(newStartTime),
+        'scheduledEndTime': Timestamp.fromDate(newEndTime),
+        'updatedAt': Timestamp.fromDate(DateTime.now()),
+      });
+
+      // Update local state silently without triggering setState
+      // The grid already updated optimistically, so we just sync the parent's state
+      // without causing a rebuild. We'll update the lists directly.
+      final upcomingIndex = _upcomingBookings.indexWhere((b) => b.id == bookingId);
+      if (upcomingIndex != -1) {
+        final booking = _upcomingBookings[upcomingIndex];
+        _upcomingBookings[upcomingIndex] = booking.copyWith(
+          scheduledStartTime: newStartTime,
+          scheduledEndTime: newEndTime,
+          updatedAt: DateTime.now(),
+        );
+      }
+      
+      // Also update in past bookings if it exists there
+      final pastIndex = _pastBookings.indexWhere((b) => b.id == bookingId);
+      if (pastIndex != -1) {
+        final booking = _pastBookings[pastIndex];
+        _pastBookings[pastIndex] = booking.copyWith(
+          scheduledStartTime: newStartTime,
+          scheduledEndTime: newEndTime,
+          updatedAt: DateTime.now(),
+        );
+      }
+      
+      // Note: We intentionally don't call setState() here to avoid rebuilding
+      // The grid already updated optimistically, and didUpdateWidget will handle
+      // syncing when the parent naturally rebuilds for other reasons
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Booking rescheduled to ${_formatDate(newStartTime)} at ${_formatTime(newStartTime)}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      // On error, reload to sync with backend
+      await _loadBookings();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error rescheduling booking: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Handle booking tap - show details dialog with actions
+  void _handleBookingTap(CalendarBooking calendarBooking) {
+    // Find the full booking details
+    final booking = _upcomingBookings.firstWhere((b) => b.id == calendarBooking.id);
+    _showBookingDetailsDialog(booking);
+  }
+
+  /// Show booking details dialog with actions
+  void _showBookingDetailsDialog(Booking booking) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(booking.serviceTitle),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow('Customer', booking.customerName),
+              _buildDetailRow('Date', _formatDate(booking.scheduledStartTime)),
+              _buildDetailRow('Time', _formatTimeSlot(booking.scheduledStartTime, booking.scheduledEndTime)),
+              _buildDetailRow('Price', '\$${booking.agreedPrice.toStringAsFixed(2)}'),
+              if (booking.location.isNotEmpty)
+                _buildDetailRow('Location', booking.location),
+              _buildDetailRow('Status', booking.status.name.toUpperCase()),
+              if (booking.notes != null && booking.notes!.isNotEmpty)
+                _buildDetailRow('Notes', booking.notes!),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _updateBookingStatus(booking, BookingStatus.confirmed);
+            },
+            child: const Text('Confirm'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _updateBookingStatus(booking, BookingStatus.cancelled);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _updateBookingStatus(Booking booking, BookingStatus status) async {
     try {
       await _bookingService.cancelBooking(booking.id);
@@ -478,7 +722,7 @@ class _AvailabilitySetupDialogState extends State<AvailabilitySetupDialog> {
         'isAvailable': i < 5, // Monday to Friday available by default
         'startTime': const TimeOfDay(hour: 9, minute: 0),
         'endTime': const TimeOfDay(hour: 17, minute: 0),
-        'slotDurationMinutes': 60,
+        'slotDurationMinutes': 10,
         'breakBetweenSlotsMinutes': 0,
       });
     }
